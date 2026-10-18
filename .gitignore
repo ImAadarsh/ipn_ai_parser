@@ -37,6 +37,10 @@ yarn-error.log*
 /data/logs/*
 !/data/**/.gitkeep
 
+# local test PDFs and generated chunks
+/*.pdf
+/*-chunks/
+
 # vercel
 .vercel
 

@@ -8,7 +8,7 @@ const nextConfig = {
       "mysql2",
     ],
     serverActions: {
-      bodySizeLimit: "50mb",
+      bodySizeLimit: "200mb",
     },
   },
 };

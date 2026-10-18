@@ -1,7 +1,11 @@
 export const PAGES_PER_COMPOSITE = 6;
 
 export function maxPdfMb() {
-  return Number(process.env.MAX_PDF_MB || 50);
+  return Number(process.env.MAX_PDF_MB || 200);
+}
+
+export function chunkPdfMb() {
+  return Number(process.env.CHUNK_PDF_MB || 50);
 }
 
 export function maxPdfBytes() {

@@ -8,9 +8,11 @@
     "start": "next start",
     "lint": "next lint",
     "setup-db": "tsx scripts/setup-db.ts",
+    "cron": "tsx scripts/cron-runner.ts",
     "cron:pages": "tsx scripts/cron-extract-pages.ts",
     "cron:compose": "tsx scripts/cron-compose.ts",
-    "cron:gemini": "tsx scripts/cron-gemini.ts"
+    "cron:gemini": "tsx scripts/cron-gemini.ts",
+    "split-pdf": "tsx scripts/split-pdf.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -18,6 +20,7 @@
     "dotenv": "^18.0.8",
     "mysql2": "^3.24.6",
     "next": "14.2.5",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
     "react": "^18",
     "react-dom": "^18",

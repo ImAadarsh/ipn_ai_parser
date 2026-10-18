@@ -18,8 +18,20 @@ Use null when a field is blank or unreadable. Skip empty slots.
 Return JSON only in this shape:
 {"students":[{"slot":1,"name":"","email":"","grade":"","school_name":""}]}`;
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export type ExtractUsage = {
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+export class ExtractionError extends Error {
+  usage?: ExtractUsage;
+  constructor(message: string, usage?: ExtractUsage) {
+    super(message);
+    this.name = "ExtractionError";
+    this.usage = usage;
+  }
 }
 
 function emptyToNull(value: string | null | undefined) {
@@ -103,7 +115,15 @@ async function extractWithGemini(jpeg: Buffer) {
       },
     },
   ]);
-  return parseJsonPayload(result.response.text());
+
+  const meta = result.response.usageMetadata;
+  const usage: ExtractUsage = {
+    promptTokens: meta?.promptTokenCount ?? 0,
+    cachedTokens: meta?.cachedContentTokenCount ?? 0,
+    completionTokens: meta?.candidatesTokenCount ?? 0,
+    totalTokens: meta?.totalTokenCount ?? 0,
+  };
+  return { text: result.response.text(), usage };
 }
 
 async function extractWithDeepSeek(jpeg: Buffer) {
@@ -121,7 +141,8 @@ async function extractWithDeepSeek(jpeg: Buffer) {
     body: JSON.stringify({
       model: process.env.DEEPSEEK_MODEL || "deepseek-flash",
       temperature: 0.1,
-      max_tokens: 4096,
+      max_tokens: 8192,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: EXTRACT_PROMPT },
@@ -148,40 +169,60 @@ async function extractWithDeepSeek(jpeg: Buffer) {
   const payload = (await response.json()) as {
     error?: { message?: string };
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      prompt_cache_hit_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+    };
   };
   if (!response.ok) {
-    throw new Error(payload.error?.message || `DeepSeek HTTP ${response.status}`);
+    throw new Error(
+      payload.error?.message || `DeepSeek HTTP ${response.status}`
+    );
   }
   const text = payload.choices?.[0]?.message?.content;
   if (!text) {
-    throw new Error("DeepSeek returned empty content");
+    throw new Error("AI returned empty content");
   }
-  return parseJsonPayload(text);
+
+  const raw = payload.usage || {};
+  const usage: ExtractUsage = {
+    promptTokens: Number(raw.prompt_tokens || 0),
+    cachedTokens: Number(
+      raw.prompt_cache_hit_tokens ?? raw.prompt_tokens_details?.cached_tokens ?? 0
+    ),
+    completionTokens: Number(raw.completion_tokens || 0),
+    totalTokens: Number(raw.total_tokens || 0),
+  };
+  return { text, usage };
 }
 
 export async function extractStudentsFromComposite(
   jpeg: Buffer,
   startPage: number,
   pagesInGroup: number
-): Promise<{ students: StudentRecord[]; raw: unknown }> {
-  let lastError: unknown;
+): Promise<{ students: StudentRecord[]; raw: unknown; usage: ExtractUsage }> {
   const provider = aiProvider();
+  const { text, usage } =
+    provider === "deepseek"
+      ? await extractWithDeepSeek(jpeg)
+      : await extractWithGemini(jpeg);
 
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
-    try {
-      const parsed =
-        provider === "deepseek"
-          ? await extractWithDeepSeek(jpeg)
-          : await extractWithGemini(jpeg);
-      return {
-        students: parseStudents(parsed, startPage, pagesInGroup),
-        raw: parsed,
-      };
-    } catch (error) {
-      lastError = error;
-      await sleep(Math.min(30000, 1500 * 2 ** (attempt - 1)));
-    }
+  let parsed: { students?: GeminiStudent[] };
+  try {
+    parsed = parseJsonPayload(text);
+  } catch {
+    throw new ExtractionError("AI returned malformed JSON", usage);
+  }
+  if (!Array.isArray(parsed.students)) {
+    throw new ExtractionError("AI response missing students array", usage);
   }
 
-  throw lastError;
+  return {
+    students: parseStudents(parsed, startPage, pagesInGroup),
+    raw: parsed,
+    usage,
+  };
 }

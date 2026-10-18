@@ -5,10 +5,16 @@ export type BatchStatus =
   | "composing"
   | "composites_ready"
   | "parsing"
+  | "needs_review"
   | "done"
   | "error";
 
-export type CompositeStatus = "pending" | "processing" | "done" | "error";
+export type CompositeStatus =
+  | "pending"
+  | "processing"
+  | "done"
+  | "review"
+  | "error";
 
 export type StudentRecord = {
   slot: number;

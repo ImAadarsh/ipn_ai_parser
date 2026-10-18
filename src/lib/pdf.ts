@@ -1,14 +1,46 @@
 import { createRequire } from "module";
-import { createCanvas, DOMMatrix, ImageData } from "@napi-rs/canvas";
+import {
+  createCanvas,
+  DOMMatrix,
+  ImageData,
+  Path2D,
+} from "@napi-rs/canvas";
 import sharp from "sharp";
 
 const g = globalThis as Record<string, unknown>;
 if (!g.DOMMatrix) g.DOMMatrix = DOMMatrix;
 if (!g.ImageData) g.ImageData = ImageData;
+if (!g.Path2D) g.Path2D = Path2D;
+
+type NapiCanvas = ReturnType<typeof createCanvas>;
+
+const canvasFactory = {
+  create(width: number, height: number) {
+    const canvas = createCanvas(width, height);
+    return { canvas, context: canvas.getContext("2d") };
+  },
+  reset(
+    canvasAndContext: { canvas: NapiCanvas; context: unknown },
+    width: number,
+    height: number
+  ) {
+    canvasAndContext.canvas.width = width;
+    canvasAndContext.canvas.height = height;
+  },
+  destroy(canvasAndContext: { canvas: NapiCanvas; context: unknown }) {
+    canvasAndContext.canvas.width = 0;
+    canvasAndContext.canvas.height = 0;
+    canvasAndContext.context = null;
+  },
+};
 
 const require = createRequire(import.meta.url);
 const pdfjs = require("pdfjs-dist/legacy/build/pdf.js") as {
-  getDocument: (src: { data: Uint8Array; verbosity: number }) => {
+  getDocument: (src: {
+    data: Uint8Array;
+    verbosity: number;
+    canvasFactory: unknown;
+  }) => {
     promise: Promise<{
       numPages: number;
       getPage: (n: number) => Promise<{
@@ -39,6 +71,7 @@ export async function openPdf(buffer: Buffer): Promise<OpenPdf> {
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
     verbosity: 0,
+    canvasFactory,
   }).promise;
 
   return {
