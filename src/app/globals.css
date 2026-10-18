@@ -3,31 +3,25 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
+  color-scheme: light;
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, #dbeafe 0%, transparent 50%),
+    radial-gradient(900px 400px at 100% 0%, #fef3c7 0%, transparent 45%),
+    #f6f3ee;
+  color: #142033;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #142033;
+  color: white;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
 }

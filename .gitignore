@@ -26,7 +26,16 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
+
+# generated scan data
+/data/uploads/*
+/data/pages/*
+/data/composites/*
+/data/locks/*
+/data/logs/*
+!/data/**/.gitkeep
 
 # vercel
 .vercel

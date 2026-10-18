@@ -1,0 +1,1 @@
+export { extractStudentsFromComposite } from "./extract";

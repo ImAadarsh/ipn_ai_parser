@@ -1,0 +1,58 @@
+CREATE TABLE IF NOT EXISTS batches (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  filename VARCHAR(255) NOT NULL,
+  stored_path VARCHAR(500) NOT NULL DEFAULT '',
+  file_size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  total_pages INT UNSIGNED NOT NULL DEFAULT 0,
+  pages_per_composite TINYINT UNSIGNED NOT NULL DEFAULT 6,
+  status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+  error_message TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS pages (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  batch_id INT UNSIGNED NOT NULL,
+  page_number INT UNSIGNED NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_batch_page_number (batch_id, page_number),
+  KEY idx_batch (batch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS composites (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  batch_id INT UNSIGNED NOT NULL,
+  start_page INT UNSIGNED NOT NULL,
+  end_page INT UNSIGNED NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  error_message TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_batch_start (batch_id, start_page),
+  KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS students (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  batch_id INT UNSIGNED NOT NULL,
+  source_page INT UNSIGNED NOT NULL,
+  slot TINYINT UNSIGNED NOT NULL,
+  name VARCHAR(255) NULL,
+  email VARCHAR(255) NULL,
+  grade VARCHAR(100) NULL,
+  school_name VARCHAR(255) NULL,
+  composite_file VARCHAR(255) NULL,
+  raw_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_batch_page (batch_id, source_page),
+  KEY idx_email (email),
+  KEY idx_batch (batch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

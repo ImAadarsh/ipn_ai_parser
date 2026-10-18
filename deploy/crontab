@@ -1,0 +1,4 @@
+# Run from the app root on the server. Adjust the cd path after deploy.
+* * * * * cd /path/to/ipn_ai_data_recovery && npx tsx scripts/cron-extract-pages.ts >> data/logs/extract-pages.log 2>&1
+* * * * * cd /path/to/ipn_ai_data_recovery && npx tsx scripts/cron-compose.ts >> data/logs/compose.log 2>&1
+* * * * * cd /path/to/ipn_ai_data_recovery && npx tsx scripts/cron-gemini.ts >> data/logs/gemini.log 2>&1
