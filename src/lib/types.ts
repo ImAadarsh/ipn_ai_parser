@@ -22,6 +22,7 @@ export type StudentRecord = {
   name: string | null;
   email: string | null;
   grade: string | null;
+  gradeNumber: number | null;
   schoolName: string | null;
 };
 
@@ -30,6 +31,7 @@ export type GeminiStudent = {
   name: string | null;
   email: string | null;
   grade: string | null;
+  grade_number: number | null;
   school_name: string | null;
 };
 

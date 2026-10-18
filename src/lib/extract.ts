@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { parseGradeNumber } from "./grade";
 import type { GeminiStudent, StudentRecord } from "./types";
 
 export const EXTRACT_PROMPT = `You read a collage of QUEST 2026 Junior Category (Classes 6-8) handwritten answer sheets.
@@ -11,12 +12,13 @@ Each cell has a dark header "Slot N · PDF page P".
 For every visible filled form extract:
 - name: Participant Name
 - email: Email Address (fix obvious spacing, keep the address if readable)
-- grade: Grade/Class (example: 8th-G1, VIII-A)
+- grade: Grade/Class exactly as written (example: 8th-G1, VIII-A)
+- grade_number: the class as a plain number 1-12 (example: "8th-G1" -> 8, "VII-A" -> 7)
 - school_name: Participant School Name
 
 Use null when a field is blank or unreadable. Skip empty slots.
 Return JSON only in this shape:
-{"students":[{"slot":1,"name":"","email":"","grade":"","school_name":""}]}`;
+{"students":[{"slot":1,"name":"","email":"","grade":"","grade_number":8,"school_name":""}]}`;
 
 export type ExtractUsage = {
   promptTokens: number;
@@ -48,14 +50,18 @@ function parseStudents(
 ): StudentRecord[] {
   return (parsed.students || [])
     .filter((row) => row.slot >= 1 && row.slot <= pagesInGroup)
-    .map((row) => ({
-      slot: row.slot,
-      sourcePage: startPage + row.slot - 1,
-      name: emptyToNull(row.name),
-      email: emptyToNull(row.email)?.toLowerCase() ?? null,
-      grade: emptyToNull(row.grade),
-      schoolName: emptyToNull(row.school_name),
-    }));
+    .map((row) => {
+      const grade = emptyToNull(row.grade);
+      return {
+        slot: row.slot,
+        sourcePage: startPage + row.slot - 1,
+        name: emptyToNull(row.name),
+        email: emptyToNull(row.email)?.toLowerCase() ?? null,
+        grade,
+        gradeNumber: parseGradeNumber(grade, row.grade_number ?? null),
+        schoolName: emptyToNull(row.school_name),
+      };
+    });
 }
 
 function parseJsonPayload(text: string) {
@@ -95,6 +101,7 @@ async function extractWithGemini(jpeg: Buffer) {
                 name: { type: SchemaType.STRING, nullable: true },
                 email: { type: SchemaType.STRING, nullable: true },
                 grade: { type: SchemaType.STRING, nullable: true },
+                grade_number: { type: SchemaType.INTEGER, nullable: true },
                 school_name: { type: SchemaType.STRING, nullable: true },
               },
               required: ["slot"],

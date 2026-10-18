@@ -16,11 +16,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const batchId = searchParams.get("batchId");
 
+  const grade = searchParams.get("grade");
+
   await initSchema();
   const students = await listStudents({
     batchId: batchId ? Number(batchId) : undefined,
     query: searchParams.get("q") || undefined,
     flag: searchParams.get("flag") || undefined,
+    gradeNumber: grade ? Number(grade) : undefined,
     limit: 2000,
   });
 
@@ -31,6 +34,7 @@ export async function GET(request: Request) {
     "name",
     "email",
     "grade",
+    "grade_number",
     "school_name",
     "issues",
     "is_duplicate",

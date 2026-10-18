@@ -12,10 +12,12 @@ export async function GET(request: Request) {
   const batchId = searchParams.get("batchId");
   try {
     await initSchema();
+    const grade = searchParams.get("grade");
     const students = await listStudents({
       batchId: batchId ? Number(batchId) : undefined,
       query: searchParams.get("q") || undefined,
       flag: searchParams.get("flag") || undefined,
+      gradeNumber: grade ? Number(grade) : undefined,
       limit: searchParams.get("limit")
         ? Number(searchParams.get("limit"))
         : undefined,

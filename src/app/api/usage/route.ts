@@ -11,7 +11,6 @@ import {
   usageSummary,
   workerPaused,
 } from "@/lib/db";
-import { usdInrRate, usdToInr } from "@/lib/pricing";
 import { workerState } from "@/lib/worker";
 
 export const runtime = "nodejs";
@@ -34,22 +33,12 @@ export async function GET() {
       lastCleanupAt(),
     ]);
 
-  const costUsd = Number(usage.cost_usd) || 0;
-
   return NextResponse.json({
     paused,
     hasWork,
     worker: workerState(),
-    rate: usdInrRate(),
     retentionDays: retentionDays(),
     lastCleanupAt: cleaned,
-    calls: Number(usage.calls) || 0,
-    totalTokens: Number(usage.total_tokens) || 0,
-    chargesInr: usdToInr(costUsd),
-    unmeteredImages: Math.max(
-      0,
-      (Number(summary.images_processed) || 0) - (Number(usage.calls) || 0)
-    ),
     pipelines: {
       pagesDone: Number(summary.pages_done) || 0,
       pagesTotal: Number(summary.pages_total) || 0,

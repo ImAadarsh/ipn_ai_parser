@@ -12,7 +12,8 @@
     "cron:pages": "tsx scripts/cron-extract-pages.ts",
     "cron:compose": "tsx scripts/cron-compose.ts",
     "cron:gemini": "tsx scripts/cron-gemini.ts",
-    "split-pdf": "tsx scripts/split-pdf.ts"
+    "split-pdf": "tsx scripts/split-pdf.ts",
+    "backfill-grades": "tsx scripts/backfill-grade-number.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

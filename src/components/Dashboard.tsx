@@ -13,6 +13,7 @@ type Student = {
   name: string | null;
   email: string | null;
   grade: string | null;
+  grade_number: number | null;
   school_name: string | null;
   issues: string | null;
   is_duplicate: number;
@@ -30,7 +31,6 @@ type Batch = {
   composites_review: number;
   composites_processing: number;
   student_count: number;
-  cost_usd: number;
   status: string;
   error_message?: string | null;
 };
@@ -44,19 +44,15 @@ type ReviewItem = {
   filename: string;
 };
 
-type Breakdown = { label: string; total: number };
+type Breakdown = { label: string; total: number; grade_number?: number };
 
 type Usage = {
   paused: boolean;
   hasWork: boolean;
   worker: { running: boolean; step: number; lastError: string | null };
-  rate: number;
+
   retentionDays: number;
   lastCleanupAt: string | null;
-  calls: number;
-  totalTokens: number;
-  chargesInr: number;
-  unmeteredImages: number;
   pipelines: {
     pagesDone: number;
     pagesTotal: number;
@@ -105,12 +101,6 @@ const STATUS_LABEL: Record<string, string> = {
 const TABS = ["process", "students", "review", "results", "users"] as const;
 type Tab = (typeof TABS)[number];
 
-function inr(value: number) {
-  return `₹${Number(value || 0).toLocaleString("en-IN", {
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 function pct(done: number, total: number) {
   if (!total) return 0;
   return Math.min(100, Math.round((done / total) * 100));
@@ -138,6 +128,7 @@ export default function Dashboard({ user }: { user: User }) {
   const [filterBatch, setFilterBatch] = useState("");
   const [query, setQuery] = useState("");
   const [flag, setFlag] = useState("");
+  const [grade, setGrade] = useState("");
   const [showAllBatches, setShowAllBatches] = useState(false);
   const [zoom, setZoom] = useState<ReviewItem | null>(null);
 
@@ -153,6 +144,7 @@ export default function Dashboard({ user }: { user: User }) {
     if (filterBatch) params.set("batchId", filterBatch);
     if (query) params.set("q", query);
     if (flag) params.set("flag", flag);
+    if (grade) params.set("grade", grade);
 
     const requests: Promise<Response>[] = [
       fetch("/api/batches"),
@@ -187,7 +179,7 @@ export default function Dashboard({ user }: { user: User }) {
     }
     if (batchJson.error) setError(batchJson.error);
     else if (studentJson.error) setError(studentJson.error);
-  }, [authRedirect, filterBatch, query, flag, user.role]);
+  }, [authRedirect, filterBatch, query, flag, grade, user.role]);
 
   useEffect(() => {
     load();
@@ -263,6 +255,7 @@ export default function Dashboard({ user }: { user: User }) {
     if (filterBatch) params.set("batchId", filterBatch);
     if (query) params.set("q", query);
     if (flag) params.set("flag", flag);
+    if (grade) params.set("grade", grade);
     window.location.href = `/api/students/export?${params.toString()}`;
   }
 
@@ -311,8 +304,7 @@ export default function Dashboard({ user }: { user: User }) {
           </h1>
           <p className="mt-2 text-sm text-slate-600">
             Signed in as <strong>{user.username}</strong>
-            {user.role === "admin" ? " (admin)" : ""} · billed per processed
-            image (INR).
+            {user.role === "admin" ? " (admin)" : ""}.
           </p>
           <p className="mt-2 inline-block rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-900">
             Auto-cleanup: PDFs &amp; images are deleted{" "}
@@ -384,6 +376,41 @@ export default function Dashboard({ user }: { user: User }) {
           </div>
         </div>
 
+        <div className="mt-6 rounded-2xl bg-white/10 p-5">
+          <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
+            Students recovered
+          </p>
+          <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-1">
+            <p
+              className="text-5xl font-semibold"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              {(p?.students ?? 0).toLocaleString()}
+            </p>
+            <p className="text-lg text-slate-200">
+              out of {(p?.pagesTotal || totals.pagesTotal).toLocaleString()}{" "}
+              pages
+            </p>
+            <p className="ml-auto text-lg font-semibold text-emerald-300">
+              {pct(p?.students ?? 0, p?.pagesTotal || totals.pagesTotal)}%
+            </p>
+          </div>
+          <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/20">
+            <div
+              className="h-full rounded-full bg-emerald-400 transition-all"
+              style={{
+                width: `${pct(
+                  p?.students ?? 0,
+                  p?.pagesTotal || totals.pagesTotal
+                )}%`,
+              }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-slate-300">
+            Every processed page should yield one participant form.
+          </p>
+        </div>
+
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <PipelineBar
             label="P1 · Pages"
@@ -394,13 +421,15 @@ export default function Dashboard({ user }: { user: User }) {
           />
           <PipelineBar
             label="P2 · 6-up images"
-            hint={`${(p?.imagesDone ?? 0).toLocaleString()} / ${totals.imagesExpected.toLocaleString()} images`}
+            hint={`${((p?.imagesDone ?? 0) * 6).toLocaleString()} / ${(
+              totals.imagesExpected * 6
+            ).toLocaleString()} images`}
             value={imagesPct}
           />
           <PipelineBar
             label="P3 · AI extraction"
-            hint={`${(p?.imagesProcessed ?? 0).toLocaleString()} / ${(
-              p?.imagesDone ?? 0
+            hint={`${((p?.imagesProcessed ?? 0) * 6).toLocaleString()} / ${(
+              (p?.imagesDone ?? 0) * 6
             ).toLocaleString()} images`}
             value={aiPct}
           />
@@ -476,6 +505,9 @@ export default function Dashboard({ user }: { user: User }) {
           setQuery={setQuery}
           flag={flag}
           setFlag={setFlag}
+          grade={grade}
+          setGrade={setGrade}
+          gradeOptions={usage?.grades || []}
           onExport={exportCsv}
         />
       )}
@@ -616,12 +648,13 @@ function ProcessTab({
               <th className="px-4 py-3 w-40">P1 · Pages</th>
               <th className="px-4 py-3 w-40">P2 · 6-up</th>
               <th className="px-4 py-3">Students</th>
+              <th className="px-4 py-3">Recovery</th>
             </tr>
           </thead>
           <tbody>
             {batches.length === 0 && (
               <tr>
-                <td className="px-4 py-8 text-slate-400" colSpan={5}>
+                <td className="px-4 py-8 text-slate-400" colSpan={6}>
                   Nothing running or queued. Upload a PDF to begin.
                 </td>
               </tr>
@@ -646,10 +679,15 @@ function ProcessTab({
                 <td className="px-4 py-3">
                   <MiniBar
                     value={pct(b.composite_count, expectedImages(b))}
-                    hint={`${b.composite_count}/${expectedImages(b) || "—"}`}
+                    hint={`${(b.composite_count * 6).toLocaleString()} / ${(
+                      expectedImages(b) * 6
+                    ).toLocaleString()}`}
                   />
                 </td>
                 <td className="px-4 py-3">{b.student_count}</td>
+                <td className="px-4 py-3 text-slate-500">
+                  {pct(b.student_count, b.total_pages)}%
+                </td>
               </tr>
             ))}
           </tbody>
@@ -710,6 +748,9 @@ function StudentsTab({
   setQuery,
   flag,
   setFlag,
+  grade,
+  setGrade,
+  gradeOptions,
   onExport,
 }: {
   students: Student[];
@@ -720,6 +761,9 @@ function StudentsTab({
   setQuery: (v: string) => void;
   flag: string;
   setFlag: (v: string) => void;
+  grade: string;
+  setGrade: (v: string) => void;
+  gradeOptions: Breakdown[];
   onExport: () => void;
 }) {
   return (
@@ -748,6 +792,21 @@ function StudentsTab({
             placeholder="name, email, school"
             className="mt-1 block rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           />
+        </label>
+        <label className="text-xs text-slate-500">
+          Class
+          <select
+            value={grade}
+            onChange={(e) => setGrade(e.target.value)}
+            className="mt-1 block rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">All classes</option>
+            {gradeOptions.map((g) => (
+              <option key={g.label} value={g.grade_number ?? ""}>
+                {g.label} ({g.total})
+              </option>
+            ))}
+          </select>
         </label>
         <label className="text-xs text-slate-500">
           Flag
@@ -779,6 +838,7 @@ function StudentsTab({
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Grade</th>
+              <th className="px-4 py-3">Class #</th>
               <th className="px-4 py-3">School</th>
               <th className="px-4 py-3">Flags</th>
             </tr>
@@ -786,7 +846,7 @@ function StudentsTab({
           <tbody>
             {students.length === 0 && (
               <tr>
-                <td className="px-4 py-8 text-slate-400" colSpan={7}>
+                <td className="px-4 py-8 text-slate-400" colSpan={8}>
                   Nothing in the database yet.
                 </td>
               </tr>
@@ -798,6 +858,13 @@ function StudentsTab({
                 <td className="px-4 py-3">{s.name || "—"}</td>
                 <td className="px-4 py-3">{s.email || "—"}</td>
                 <td className="px-4 py-3">{s.grade || "—"}</td>
+                <td className="px-4 py-3">
+                  {s.grade_number ? (
+                    <Badge tone="slate">Class {s.grade_number}</Badge>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-4 py-3">{s.school_name || "—"}</td>
                 <td className="px-4 py-3">
                   {s.is_duplicate ? <Badge tone="amber">duplicate</Badge> : null}
@@ -902,11 +969,13 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
   const processed = p?.imagesProcessed ?? 0;
   const ok = p?.imagesOk ?? 0;
   const forms = processed * 6;
-  const charges = usage?.chargesInr ?? 0;
   const recovered = s?.total ?? 0;
+  const pagesTotal = p?.pagesTotal ?? 0;
+  const pagesDone = p?.pagesDone ?? 0;
   const successRate = processed ? Math.round((ok / processed) * 100) : 0;
-  const coverage = forms ? Math.round((recovered / forms) * 100) : 0;
-  const perImage = processed ? charges / processed : 0;
+  const recoveryRate = pagesTotal
+    ? Math.round((recovered / pagesTotal) * 100)
+    : 0;
   const emailRate = recovered
     ? Math.round(((s?.validEmails ?? 0) / recovered) * 100)
     : 0;
@@ -917,18 +986,18 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
   return (
     <>
       <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <BigStat label="Processed images" value={processed.toLocaleString()} />
         <BigStat
-          label="Form slots processed (images × 6)"
-          value={forms.toLocaleString()}
-          highlight
-        />
-        <BigStat
-          label="Students captured"
+          label={`Students recovered (of ${pagesTotal.toLocaleString()} pages)`}
           value={recovered.toLocaleString()}
           highlight
         />
-        <BigStat label="Charges (INR)" value={inr(charges)} highlight />
+        <BigStat
+          label="Recovery rate (students ÷ pages)"
+          value={`${recoveryRate}%`}
+          highlight
+        />
+        <BigStat label="Processed images" value={forms.toLocaleString()} />
+        <Stat label="Pages processed" value={pagesDone.toLocaleString()} />
         <Stat label="Valid emails" value={(s?.validEmails ?? 0).toLocaleString()} />
         <Stat label="Emails on file" value={(s?.withEmail ?? 0).toLocaleString()} />
         <Stat label="Valid email rate" value={`${emailRate}%`} />
@@ -936,36 +1005,28 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
         <Stat label="Invalid emails" value={(s?.invalidEmails ?? 0).toLocaleString()} />
         <Stat label="Schools covered" value={(s?.schools ?? 0).toLocaleString()} />
         <Stat label="Grades seen" value={(s?.grades ?? 0).toLocaleString()} />
-        <Stat label="Coverage (students ÷ slots)" value={`${coverage}%`} />
         <Stat label="Images OK" value={ok.toLocaleString()} />
         <Stat label="Needs review" value={(p?.imagesReview ?? 0).toLocaleString()} />
         <Stat label="Success rate" value={`${successRate}%`} />
-        <Stat label="Charges per image" value={inr(perImage)} />
+        <Stat label="Batches" value={(p?.batches ?? batches.length).toLocaleString()} />
       </section>
 
-      {(usage?.unmeteredImages ?? 0) > 0 && (
-        <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-2 text-xs text-amber-900">
-          {usage?.unmeteredImages} image(s) were processed before per-image
-          metering was enabled, so they are not included in the charges above.
-        </p>
-      )}
-
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <BreakdownCard
+          title="Students by class"
+          rows={usage?.grades || []}
+          max={maxGrade}
+        />
         <BreakdownCard
           title="Top schools"
           rows={usage?.schools || []}
           max={maxSchool}
         />
-        <BreakdownCard
-          title="Grade distribution"
-          rows={usage?.grades || []}
-          max={maxGrade}
-        />
       </section>
 
       <section className="mt-6 overflow-hidden rounded-3xl border border-white bg-white shadow-sm">
         <div className="border-b border-slate-100 px-5 py-3 text-sm font-medium">
-          Charges by batch (per processed image)
+          Recovery by batch
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
@@ -973,24 +1034,26 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
               <tr>
                 <th className="px-4 py-3">Batch</th>
                 <th className="px-4 py-3">File</th>
+                <th className="px-4 py-3">Pages</th>
                 <th className="px-4 py-3">Images</th>
-                <th className="px-4 py-3">Form slots (×6)</th>
                 <th className="px-4 py-3">Students</th>
-                <th className="px-4 py-3">Charges (INR)</th>
+                <th className="px-4 py-3">Recovery</th>
               </tr>
             </thead>
             <tbody>
               {batches.map((b) => {
-                const images = b.composites_done + b.composites_review;
+                const images = (b.composites_done + b.composites_review) * 6;
                 return (
                   <tr key={b.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 text-slate-500">#{b.id}</td>
                     <td className="px-4 py-3">{b.filename}</td>
+                    <td className="px-4 py-3">
+                      {b.page_count}/{b.total_pages || "—"}
+                    </td>
                     <td className="px-4 py-3">{images}</td>
-                    <td className="px-4 py-3">{images * 6}</td>
                     <td className="px-4 py-3">{b.student_count}</td>
                     <td className="px-4 py-3">
-                      {inr((Number(b.cost_usd) || 0) * (usage?.rate ?? 800))}
+                      {pct(b.student_count, b.total_pages)}%
                     </td>
                   </tr>
                 );

@@ -20,6 +20,7 @@ export type StudentFilters = {
   batchId?: number;
   query?: string;
   flag?: string;
+  gradeNumber?: number;
   limit?: number;
 };
 
@@ -180,6 +181,12 @@ export async function initSchema() {
     if (!(await columnExists("students", column))) {
       await db.query(`ALTER TABLE students ADD COLUMN ${column} ${ddl}`);
     }
+  }
+
+  if (!(await columnExists("students", "grade_number"))) {
+    await db.query(
+      `ALTER TABLE students ADD COLUMN grade_number TINYINT UNSIGNED NULL AFTER grade, ADD KEY idx_grade_number (grade_number)`
+    );
   }
 
   await db.query(`
@@ -433,6 +440,7 @@ export async function insertStudents(
       s.name,
       email,
       s.grade,
+      s.gradeNumber ?? null,
       s.schoolName,
       compositeFile,
       JSON.stringify(raw),
@@ -444,13 +452,14 @@ export async function insertStudents(
 
   await db.query(
     `INSERT INTO students
-      (batch_id, source_page, slot, name, email, grade, school_name, composite_file, raw_json, issues, is_duplicate, valid_email)
+      (batch_id, source_page, slot, name, email, grade, grade_number, school_name, composite_file, raw_json, issues, is_duplicate, valid_email)
      VALUES ?
      ON DUPLICATE KEY UPDATE
       slot = VALUES(slot),
       name = VALUES(name),
       email = VALUES(email),
       grade = VALUES(grade),
+      grade_number = VALUES(grade_number),
       school_name = VALUES(school_name),
       composite_file = VALUES(composite_file),
       raw_json = VALUES(raw_json),
@@ -512,8 +521,7 @@ export async function listBatches() {
             (SELECT COUNT(*) FROM composites c WHERE c.batch_id = b.id AND c.status = 'done') AS composites_done,
             (SELECT COUNT(*) FROM composites c WHERE c.batch_id = b.id AND c.status = 'review') AS composites_review,
             (SELECT COUNT(*) FROM composites c WHERE c.batch_id = b.id AND c.status = 'processing') AS composites_processing,
-            (SELECT COUNT(*) FROM students s WHERE s.batch_id = b.id) AS student_count,
-            (SELECT COALESCE(SUM(c.cost_usd), 0) FROM composites c WHERE c.batch_id = b.id) AS cost_usd
+            (SELECT COUNT(*) FROM students s WHERE s.batch_id = b.id) AS student_count
      FROM batches b
      ORDER BY b.id DESC
      LIMIT 50`
@@ -536,6 +544,10 @@ export async function listStudents(filters: StudentFilters = {}) {
   if (filters.flag === "duplicate") where.push("is_duplicate = 1");
   if (filters.flag === "invalid_email") where.push("valid_email = 0");
   if (filters.flag === "issues") where.push("issues IS NOT NULL");
+  if (filters.gradeNumber) {
+    where.push("grade_number = ?");
+    params.push(filters.gradeNumber);
+  }
 
   const sql = `SELECT * FROM students ${
     where.length ? `WHERE ${where.join(" AND ")}` : ""
@@ -747,15 +759,17 @@ export async function schoolBreakdown(limit = 12) {
 
 export async function gradeBreakdown(limit = 12) {
   const [rows] = await getPool().query(
-    `SELECT grade AS label, COUNT(*) AS total
+    `SELECT CONCAT('Class ', grade_number) AS label,
+            COUNT(*) AS total,
+            grade_number
      FROM students
-     WHERE grade IS NOT NULL AND grade <> ''
-     GROUP BY grade
-     ORDER BY total DESC
+     WHERE grade_number IS NOT NULL
+     GROUP BY grade_number
+     ORDER BY grade_number ASC
      LIMIT ?`,
     [limit]
   );
-  return rows as Array<{ label: string; total: number }>;
+  return rows as Array<{ label: string; total: number; grade_number: number }>;
 }
 
 export async function batchesForCleanup(retentionDays: number) {
