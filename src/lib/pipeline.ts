@@ -11,6 +11,7 @@ import {
   existingPageNumbers,
   findBatchByStatus,
   finishComposite,
+  getBatch,
   initSchema,
   insertComposite,
   insertDistortedImage,
@@ -104,13 +105,26 @@ export async function runExtractPages() {
   });
 }
 
-export async function runCompose(opts: { ignorePause?: boolean } = {}) {
+export async function runCompose(
+  opts: { ignorePause?: boolean; batchId?: number } = {}
+) {
   return withCronLock("compose-six", async () => {
     await initSchema();
     if (!opts.ignorePause && (await workerPaused())) return;
-    const batch = await findBatchByStatus(["pages_ready", "composing"]);
+    let batch = opts.batchId
+      ? null
+      : await findBatchByStatus(["pages_ready", "composing"]);
+    if (opts.batchId) {
+      const target = await getBatch(opts.batchId);
+      if (
+        target &&
+        (target.status === "pages_ready" || target.status === "composing")
+      ) {
+        batch = target;
+      }
+    }
     if (!batch) {
-      console.log("No page set waiting for 6-up compose");
+      console.log("No page set waiting for image compose");
       return;
     }
 

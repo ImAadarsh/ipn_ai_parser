@@ -63,7 +63,7 @@ async function main() {
       batchId,
     ]);
     for (let i = 0; i < 60; i += 1) {
-      await runCompose({ ignorePause: true });
+      await runCompose({ ignorePause: true, batchId });
       const [afterRows] = await db.query(
         `SELECT COUNT(*) AS comps_total FROM composites WHERE batch_id = ?`,
         [batchId]
