@@ -492,6 +492,26 @@ export async function syncBatchAfterGemini(batchId: number) {
   )[0];
 
   if (!stats || Number(stats.total_count) === 0) return;
+
+  // Compose may still owe composites for trailing pages (it works in limited
+  // cycles and can lose the batch if Gemini flips the status meanwhile).
+  // Never finish a batch until every page is covered by a composite.
+  const [coverRows] = await getPool().query(
+    `SELECT (SELECT COUNT(*) FROM pages WHERE batch_id = ?) AS pages_total,
+            (SELECT COUNT(*) FROM composites WHERE batch_id = ?) AS comps_total`,
+    [batchId, batchId]
+  );
+  const cover = (
+    coverRows as Array<{ pages_total: number; comps_total: number }>
+  )[0];
+  const needed = Math.ceil(
+    Number(cover?.pages_total || 0) / PAGES_PER_COMPOSITE
+  );
+  if (needed > 0 && Number(cover?.comps_total || 0) < needed) {
+    await updateBatch(batchId, { status: "composing", error_message: null });
+    return;
+  }
+
   if (Number(stats.pending_count) > 0 || Number(stats.processing_count) > 0) {
     await updateBatch(batchId, { status: "parsing" });
     return;

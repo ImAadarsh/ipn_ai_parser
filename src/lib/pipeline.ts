@@ -156,6 +156,9 @@ export async function runCompose() {
       return;
     }
 
+    // Re-assert 'composing' so the next cycle picks this batch up again even
+    // if Gemini moved it to another status while we were working.
+    await updateBatch(batch.id, { status: "composing" });
     console.log(
       `Batch ${batch.id}: ${have}/${needed} six-up images, +${made} this cycle`
     );
