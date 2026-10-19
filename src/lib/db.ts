@@ -190,6 +190,21 @@ export async function initSchema() {
   }
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS distorted_images (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      batch_id INT UNSIGNED NOT NULL,
+      composite_id INT UNSIGNED NOT NULL,
+      page_number INT UNSIGNED NOT NULL,
+      reason VARCHAR(255) NULL,
+      model VARCHAR(100) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_batch_page (batch_id, page_number),
+      KEY idx_batch (batch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       username VARCHAR(100) NOT NULL,
@@ -345,12 +360,15 @@ export async function listComposites(batchId: number) {
   return rows as CompositeRow[];
 }
 
-export async function claimPendingComposite() {
+export async function claimPendingComposite(batchId?: number) {
   const conn = await getPool().getConnection();
   try {
     await conn.beginTransaction();
     const [rows] = await conn.query(
-      `SELECT * FROM composites WHERE status = 'pending' ORDER BY id ASC LIMIT 1 FOR UPDATE`
+      batchId
+        ? `SELECT * FROM composites WHERE status = 'pending' AND batch_id = ? ORDER BY id ASC LIMIT 1 FOR UPDATE`
+        : `SELECT * FROM composites WHERE status = 'pending' ORDER BY id ASC LIMIT 1 FOR UPDATE`,
+      batchId ? [batchId] : []
     );
     const row = (rows as CompositeRow[])[0];
     if (!row) {
@@ -622,6 +640,59 @@ export async function listReviewComposites() {
      ORDER BY c.id DESC`
   );
   return rows as Array<Record<string, unknown>>;
+}
+
+export async function insertDistortedImage(input: {
+  batchId: number;
+  compositeId: number;
+  pageNumber: number;
+  reason: string;
+  model?: string | null;
+}) {
+  await getPool().query(
+    `INSERT INTO distorted_images
+       (batch_id, composite_id, page_number, reason, model)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       composite_id = VALUES(composite_id),
+       reason = VALUES(reason),
+       model = VALUES(model)`,
+    [
+      input.batchId,
+      input.compositeId,
+      input.pageNumber,
+      input.reason,
+      input.model ?? null,
+    ]
+  );
+}
+
+export async function distortedCount() {
+  const [rows] = await getPool().query(
+    `SELECT COUNT(*) AS total FROM distorted_images`
+  );
+  return Number((rows as Array<{ total: number }>)[0]?.total) || 0;
+}
+
+export async function listDistortedImages(limit = 100) {
+  const [rows] = await getPool().query(
+    `SELECT d.id, d.batch_id, d.composite_id, d.page_number, d.reason,
+            d.model, d.created_at, b.filename
+     FROM distorted_images d JOIN batches b ON b.id = d.batch_id
+     ORDER BY d.id DESC
+     LIMIT ?`,
+    [limit]
+  );
+  return rows as Array<Record<string, unknown>>;
+}
+
+export async function getPageImage(batchId: number, pageNumber: number) {
+  const [rows] = await getPool().query(
+    `SELECT file_path FROM pages WHERE batch_id = ? AND page_number = ?`,
+    [batchId, pageNumber]
+  );
+  const row = (rows as Array<{ file_path: string }>)[0];
+  return row?.file_path ?? null;
 }
 
 export async function getCompositeById(id: number) {

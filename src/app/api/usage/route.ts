@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authGuard } from "@/lib/api-auth";
 import { lastCleanupAt, retentionDays } from "@/lib/cleanup";
 import {
+  distortedCount,
   gradeBreakdown,
   initSchema,
   pipelineHasWork,
@@ -21,17 +22,27 @@ export async function GET() {
   if (guard.error) return guard.error;
   await initSchema();
 
-  const [summary, usage, paused, hasWork, students, schools, grades, cleaned] =
-    await Promise.all([
-      pipelineSummary(),
-      usageSummary(),
-      workerPaused(),
-      pipelineHasWork(),
-      studentStats(),
-      schoolBreakdown(),
-      gradeBreakdown(),
-      lastCleanupAt(),
-    ]);
+  const [
+    summary,
+    usage,
+    paused,
+    hasWork,
+    students,
+    schools,
+    grades,
+    cleaned,
+    distorted,
+  ] = await Promise.all([
+    pipelineSummary(),
+    usageSummary(),
+    workerPaused(),
+    pipelineHasWork(),
+    studentStats(),
+    schoolBreakdown(),
+    gradeBreakdown(),
+    lastCleanupAt(),
+    distortedCount(),
+  ]);
 
   return NextResponse.json({
     paused,
@@ -48,6 +59,7 @@ export async function GET() {
       imagesReview: Number(summary.images_review) || 0,
       students: Number(summary.students) || 0,
       batches: Number(summary.batches) || 0,
+      distortedImages: distorted,
     },
     students: {
       total: Number(students.total) || 0,

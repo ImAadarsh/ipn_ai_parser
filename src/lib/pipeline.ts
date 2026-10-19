@@ -13,6 +13,7 @@ import {
   finishComposite,
   initSchema,
   insertComposite,
+  insertDistortedImage,
   insertPage,
   insertStudents,
   listComposites,
@@ -22,7 +23,11 @@ import {
   updateBatch,
   workerPaused,
 } from "./db";
-import { ExtractionError, extractStudentsFromComposite } from "./extract";
+import {
+  ExtractionError,
+  aiModel,
+  extractStudentsFromComposite,
+} from "./extract";
 import { usageCostUsd } from "./pricing";
 import { withCronLock } from "./lock";
 import { COMPOSITE_DIR, PAGE_DIR, UPLOAD_DIR } from "./paths";
@@ -99,10 +104,10 @@ export async function runExtractPages() {
   });
 }
 
-export async function runCompose() {
+export async function runCompose(opts: { ignorePause?: boolean } = {}) {
   return withCronLock("compose-six", async () => {
     await initSchema();
-    if (await workerPaused()) return;
+    if (!opts.ignorePause && (await workerPaused())) return;
     const batch = await findBatchByStatus(["pages_ready", "composing"]);
     if (!batch) {
       console.log("No page set waiting for 6-up compose");
@@ -165,15 +170,17 @@ export async function runCompose() {
   });
 }
 
-export async function runGemini() {
+export async function runGemini(
+  opts: { ignorePause?: boolean; batchId?: number; limit?: number } = {}
+) {
   return withCronLock("gemini", async () => {
     await initSchema();
-    if (await workerPaused()) return;
-    const limit = geminiPerRun();
+    if (!opts.ignorePause && (await workerPaused())) return;
+    const limit = opts.limit ?? geminiPerRun();
     let processed = 0;
 
     while (processed < limit) {
-      const composite = await claimPendingComposite();
+      const composite = await claimPendingComposite(opts.batchId);
       if (!composite) {
         if (processed === 0) console.log("No six-up image waiting for AI");
         break;
@@ -192,6 +199,19 @@ export async function runGemini() {
         jpeg = await fs.readFile(imagePath);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        for (
+          let page = composite.start_page;
+          page <= composite.end_page;
+          page += 1
+        ) {
+          await insertDistortedImage({
+            batchId: composite.batch_id,
+            compositeId: composite.id,
+            pageNumber: page,
+            reason: `Completely distorted: composite image missing/corrupt (${message})`,
+            model: null,
+          });
+        }
         await finishComposite(
           composite.id,
           "review",
@@ -210,24 +230,50 @@ export async function runGemini() {
           composite.start_page,
           pagesInGroup
         );
-        await insertStudents(
-          composite.batch_id,
-          students,
-          composite.file_path,
-          raw,
-          composite.start_page,
-          composite.end_page
-        );
+        const visible = students.filter((student) => student.pageVisible);
+        const distorted = students.filter((student) => !student.pageVisible);
+        for (const entry of distorted) {
+          await insertDistortedImage({
+            batchId: composite.batch_id,
+            compositeId: composite.id,
+            pageNumber: entry.sourcePage,
+            reason:
+              "Completely distorted / unreadable page, no data accepted (0 hallucination policy)",
+            model: aiModel(),
+          });
+        }
+        if (visible.length > 0) {
+          await insertStudents(
+            composite.batch_id,
+            visible,
+            composite.file_path,
+            raw,
+            composite.start_page,
+            composite.end_page
+          );
+        }
         await recordUsage(composite.id, {
           promptTokens: usage.promptTokens,
           completionTokens: usage.completionTokens,
           totalTokens: usage.totalTokens,
           costUsd: usageCostUsd(usage),
         });
-        await finishComposite(composite.id, "done");
-        console.log(
-          `Composite ${composite.id}: saved ${students.length} students (pages ${composite.start_page}-${composite.end_page})`
-        );
+        if (visible.length === 0 && distorted.length > 0) {
+          await finishComposite(
+            composite.id,
+            "review",
+            `Completely distorted: ${distorted.length}/${pagesInGroup} pages unreadable, no data accepted`
+          );
+          console.log(
+            `Composite ${composite.id}: ALL ${distorted.length} pages distorted (pages ${composite.start_page}-${composite.end_page})`
+          );
+        } else {
+          // Never trust an extraction with zero visible students silently.
+          await finishComposite(composite.id, "done");
+          console.log(
+            `Composite ${composite.id}: saved ${visible.length} students, ${distorted.length} distorted (pages ${composite.start_page}-${composite.end_page})`
+          );
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // A processed image is still billable, so keep its token usage even

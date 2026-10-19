@@ -13,7 +13,9 @@
     "cron:compose": "tsx scripts/cron-compose.ts",
     "cron:gemini": "tsx scripts/cron-gemini.ts",
     "split-pdf": "tsx scripts/split-pdf.ts",
-    "backfill-grades": "tsx scripts/backfill-grade-number.ts"
+    "backfill-grades": "tsx scripts/backfill-grade-number.ts",
+    "wipe-data": "tsx scripts/wipe-data.ts",
+    "reprocess-batch": "tsx scripts/reprocess-batch.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

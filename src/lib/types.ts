@@ -19,6 +19,7 @@ export type CompositeStatus =
 export type StudentRecord = {
   slot: number;
   sourcePage: number;
+  pageVisible: boolean;
   name: string | null;
   email: string | null;
   grade: string | null;
@@ -28,6 +29,7 @@ export type StudentRecord = {
 
 export type GeminiStudent = {
   slot: number;
+  page_visible?: boolean;
   name: string | null;
   email: string | null;
   grade: string | null;
