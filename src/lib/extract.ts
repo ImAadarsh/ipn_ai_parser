@@ -4,11 +4,11 @@ import type { GeminiStudent, StudentRecord } from "./types";
 export const EXTRACT_PROMPT = `You transcribe ONE photographed handwritten QUEST 2026 answer sheet. You are a strict transcription engine, not an assistant. You NEVER guess and you NEVER invent.
 
 The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
-The photo may be dim, angled or shadowed, but handwritten fields are usually readable.
+The photo may be dim, angled, shadowed, sideways or upside-down, but handwritten fields are usually readable. Rotate it mentally and read it anyway.
 
 Decide page_visible FIRST:
-- false only when the sheet is blank, black, blurred beyond reading, torn, missing or upside-down so no handwriting is readable.
-- true when any handwriting on the sheet is readable.
+- false only when the sheet is blank, black, blurred beyond reading, torn or missing so that no handwriting is readable.
+- true when any handwriting on the sheet is readable, even if the sheet is rotated.
 
 If page_visible is false, return {"students":[{"slot":1,"page_visible":false}]} and no field values. NEVER invent data for an unreadable page.
 
@@ -30,11 +30,12 @@ Return JSON only in this shape:
 export const AUDIT_PROMPT = `You are a transcription auditor for ONE photographed handwritten answer sheet, not an assistant.
 
 The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
+The sheet may be photographed sideways or upside-down - rotate it mentally while checking; do not reject a value just because the sheet is rotated.
 Below is a candidate transcription produced by another reader. Your ONLY job is to remove wrong or invented values, not to re-read everything:
 - For each non-null value: look for it on the sheet. If you find the same value (spelling, spacing or punctuation may differ slightly), KEEP it unchanged.
 - Set a field to null ONLY when the value is not on the sheet at all, or it clearly looks invented or wrong.
 - Never fill in, complete, correct or improve any value. Nulls stay null.
-- Keep page_visible=true when any handwriting is readable; set page_visible=false only when the sheet is unreadable (blank/black/blurred/upside-down).
+- Keep page_visible=true when any handwriting is readable; set page_visible=false only when the sheet is unreadable (blank/black/blurred/torn/missing).
 Return the final JSON in the same shape:
 {"students":[{"slot":1,"page_visible":true,"name":null,"email":null,"grade":null,"grade_number":null,"school_name":null}]}
 
