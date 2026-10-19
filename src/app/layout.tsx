@@ -14,7 +14,7 @@ const sans = DM_Sans({
 
 export const metadata: Metadata = {
   title: "IPN QUEST sheet recovery",
-  description: "Upload QUEST PDFs. Cron jobs split pages, pack 6-up images, and extract student JSON with Gemini.",
+  description: "Upload QUEST PDFs. Cron jobs split pages, process images, and extract student data automatically.",
 };
 
 export default function RootLayout({

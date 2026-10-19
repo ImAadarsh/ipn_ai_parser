@@ -89,8 +89,8 @@ type AdminUser = {
 const STATUS_LABEL: Record<string, string> = {
   uploaded: "Queued — split pages",
   extracting_pages: "P1 · splitting into pages",
-  pages_ready: "Queued — pack 6-up",
-  composing: "P2 · packing 6-up images",
+  pages_ready: "Queued — images processing",
+  composing: "P2 · images Processing",
   composites_ready: "Queued — AI extraction",
   parsing: "P3 · AI extracting",
   needs_review: "Needs review",
@@ -413,14 +413,14 @@ export default function Dashboard({ user }: { user: User }) {
 
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <PipelineBar
-            label="P1 · Pages"
+            label="P1 · Pages Splits"
             hint={`${(p?.pagesDone ?? 0).toLocaleString()} / ${(
               p?.pagesTotal || totals.pagesTotal
             ).toLocaleString()} pages`}
             value={pagesPct}
           />
           <PipelineBar
-            label="P2 · 6-up images"
+            label="P2 · images Processing"
             hint={`${((p?.imagesDone ?? 0) * 6).toLocaleString()} / ${(
               totals.imagesExpected * 6
             ).toLocaleString()} images`}
@@ -580,8 +580,8 @@ export default function Dashboard({ user }: { user: User }) {
 
       <footer className="mt-10 border-t border-slate-200 pt-4 text-xs text-slate-500">
         <p>
-          Storage policy: uploaded PDFs, page images and 6-up images are
-          permanently deleted {usage?.retentionDays ?? 10} days after upload by
+          Storage policy: uploaded PDFs, split page images and processed
+          images are permanently deleted {usage?.retentionDays ?? 10} days after upload by
           the automated cron job. Extracted student records remain in the
           database.
           {usage?.lastCleanupAt
@@ -646,7 +646,7 @@ function ProcessTab({
               <th className="px-4 py-3">File</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 w-40">P1 · Pages</th>
-              <th className="px-4 py-3 w-40">P2 · 6-up</th>
+              <th className="px-4 py-3 w-40">P2 · Images</th>
               <th className="px-4 py-3">Students</th>
               <th className="px-4 py-3">Recovery</th>
             </tr>
@@ -967,12 +967,10 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
   const p = usage?.pipelines;
   const s = usage?.students;
   const processed = p?.imagesProcessed ?? 0;
-  const ok = p?.imagesOk ?? 0;
   const forms = processed * 6;
   const recovered = s?.total ?? 0;
   const pagesTotal = p?.pagesTotal ?? 0;
   const pagesDone = p?.pagesDone ?? 0;
-  const successRate = processed ? Math.round((ok / processed) * 100) : 0;
   const recoveryRate = pagesTotal
     ? Math.round((recovered / pagesTotal) * 100)
     : 0;
@@ -1005,9 +1003,7 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
         <Stat label="Invalid emails" value={(s?.invalidEmails ?? 0).toLocaleString()} />
         <Stat label="Schools covered" value={(s?.schools ?? 0).toLocaleString()} />
         <Stat label="Grades seen" value={(s?.grades ?? 0).toLocaleString()} />
-        <Stat label="Images OK" value={ok.toLocaleString()} />
         <Stat label="Needs review" value={(p?.imagesReview ?? 0).toLocaleString()} />
-        <Stat label="Success rate" value={`${successRate}%`} />
         <Stat label="Batches" value={(p?.batches ?? batches.length).toLocaleString()} />
       </section>
 
