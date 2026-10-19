@@ -108,29 +108,6 @@ export function aiProvider() {
   return "gemini" as const;
 }
 
-const STUDENTS_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    students: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          slot: { type: "INTEGER" },
-          page_visible: { type: "BOOLEAN", nullable: true },
-          name: { type: "STRING", nullable: true },
-          email: { type: "STRING", nullable: true },
-          grade: { type: "STRING", nullable: true },
-          grade_number: { type: "INTEGER", nullable: true },
-          school_name: { type: "STRING", nullable: true },
-        },
-        required: ["slot"],
-      },
-    },
-  },
-  required: ["students"],
-};
-
 function addUsage(a: ExtractUsage, b: ExtractUsage): ExtractUsage {
   return {
     promptTokens: a.promptTokens + b.promptTokens,
@@ -151,8 +128,7 @@ const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 async function geminiRequest(
   prompt: string,
-  jpeg: Buffer,
-  withSchema: boolean
+  jpeg: Buffer
 ): Promise<{ text: string; usage: ExtractUsage }> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
@@ -160,13 +136,13 @@ async function geminiRequest(
   }
   const model = aiModel();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-  const generationConfig: Record<string, unknown> = {
+  // Deliberately NO responseSchema: Gemini 3.8-flash silently omits fields
+  // (even readable names) when a schema is attached. Plain JSON mode + the
+  // strict prompt is far more accurate for this task.
+  const generationConfig = {
     temperature: 0,
     responseMimeType: "application/json",
   };
-  if (withSchema) {
-    generationConfig.responseSchema = STUDENTS_SCHEMA;
-  }
 
   const response = await fetch(url, {
     method: "POST",
@@ -232,19 +208,11 @@ async function geminiCall(
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if (attempt > 0) await sleep(5000 * attempt);
     try {
-      return await geminiRequest(prompt, jpeg, true);
+      return await geminiRequest(prompt, jpeg);
     } catch (error) {
       lastError = error;
       const status = (error as { status?: number }).status;
       if (status === 429 || status === 503) continue;
-      if (status === 400) {
-        // Some deployments reject responseSchema; retry plain JSON mode.
-        try {
-          return await geminiRequest(prompt, jpeg, false);
-        } catch (retryError) {
-          lastError = retryError;
-        }
-      }
       break;
     }
   }
