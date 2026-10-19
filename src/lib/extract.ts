@@ -1,46 +1,57 @@
 import { parseGradeNumber } from "./grade";
-import type { GeminiStudent, StudentRecord } from "./types";
+import type { StudentRecord } from "./types";
 
-export const EXTRACT_PROMPT = `You transcribe ONE photographed handwritten QUEST 2026 answer sheet. You are a strict transcription engine, not an assistant. You NEVER guess and you NEVER invent.
+export const FORENSIC_PROMPT = `You are a literal forensic transcription engine. Extract the handwritten student fields from ONE photographed answer sheet. The image has a dark printed header bar, the sheet photo is below it. The sheet may be dim, angled, shadowed, sideways or upside-down - rotate it mentally and read it.
 
-The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
-The photo may be dim, angled, shadowed, sideways or upside-down, but handwritten fields are usually readable. Rotate it mentally and read it anyway.
-
-Decide page_visible FIRST:
-- false only when the sheet is blank, black, blurred beyond reading, torn or missing so that no handwriting is readable.
-- true when any handwriting on the sheet is readable, even if the sheet is rotated.
-
-If page_visible is false, return {"students":[{"slot":1,"page_visible":false}]} and no field values. NEVER invent data for an unreadable page.
-
-If visible, transcribe ONLY the characters you can actually see:
-- name: Participant Name as handwritten
-- email: Email Address exactly, character by character (do not infer or complete domains)
-- grade: Grade/Class exactly as written
-- grade_number: the plain class number 1-12, or null
-- school_name: School name as handwritten (ignore the pre-printed header, read the written answer)
-
-HARD RULES:
-- If ANY character of a field is uncertain, smudged, cut off or blank, set that field to null.
-- Never fix spellings, never complete a word, never add "gmail.com" or any domain that is not clearly written.
-- Never use example.com or any placeholder data. A null is always acceptable; a guess is a failure.
+CRITICAL RULES:
+1. NEVER guess, autocomplete or spell-correct any character. Never "fix" email domains or school names.
+2. For every field report status:
+   - READABLE = you can see every character clearly,
+   - BLURRED = the field has writing but at least one character is uncertain, smudged, cut off or overwritten,
+   - NO_DATA = the field is blank or empty.
+3. When status is READABLE, put the exact handwritten text in value. Otherwise put the same word as the status in value.
+4. quality: CLEAR (everything readable), BLURRED, BLANK (no sheet), CUT_OFF (sheet partially outside the photo).
+5. Never invent. A BLURRED status is always acceptable; a wrong value is a failure.
 
 Return JSON only in this shape:
-{"students":[{"slot":1,"page_visible":true,"name":null,"email":null,"grade":null,"grade_number":null,"school_name":null}]}`;
+{"students":[{"slot":1,"quality":"CLEAR","name":{"status":"READABLE","value":"..."},"email":{"status":"BLURRED","value":"BLURRED"},"grade":{"status":"NO_DATA","value":"NO_DATA"},"school_name":{"status":"READABLE","value":"..."}}]}`;
 
-export const AUDIT_PROMPT = `You are a transcription auditor for ONE photographed handwritten answer sheet, not an assistant.
+const FIELD_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    status: {
+      type: "STRING",
+      enum: ["READABLE", "BLURRED", "NO_DATA"],
+    },
+    value: { type: "STRING" },
+  },
+  required: ["status", "value"],
+};
 
-The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
-The sheet may be photographed sideways or upside-down - rotate it mentally while checking; do not reject a value just because the sheet is rotated.
-Below is a candidate transcription produced by another reader. Your ONLY job is to remove wrong or invented values, not to re-read everything:
-- For each non-null value: look for it on the sheet. If you find the same value (spelling, spacing or punctuation may differ slightly), KEEP it unchanged.
-- Set a field to null ONLY when the value is not on the sheet at all, or it clearly looks invented or wrong.
-- Never fill in, complete, correct or improve any value. Nulls stay null.
-- Keep page_visible=true when any handwriting is readable; set page_visible=false only when the sheet is unreadable (blank/black/blurred/torn/missing).
-Return the final JSON in the same shape:
-{"students":[{"slot":1,"page_visible":true,"name":null,"email":null,"grade":null,"grade_number":null,"school_name":null}]}
-
-Candidate transcription to audit:
-`;
+export const SHEET_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    students: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          slot: { type: "INTEGER" },
+          quality: {
+            type: "STRING",
+            enum: ["CLEAR", "BLURRED", "BLANK", "CUT_OFF"],
+          },
+          name: FIELD_SCHEMA,
+          email: FIELD_SCHEMA,
+          grade: FIELD_SCHEMA,
+          school_name: FIELD_SCHEMA,
+        },
+        required: ["slot", "quality", "name", "email", "grade", "school_name"],
+      },
+    },
+  },
+  required: ["students"],
+};
 
 export type ExtractUsage = {
   promptTokens: number;
@@ -58,55 +69,130 @@ export class ExtractionError extends Error {
   }
 }
 
-function emptyToNull(value: string | null | undefined) {
-  if (value == null) return null;
-  const trimmed = String(value).trim();
-  if (!trimmed || trimmed.toLowerCase() === "null") return null;
-  return trimmed;
+type FieldValue = { status?: string; value?: string };
+type RawSheetRow = {
+  slot?: number;
+  quality?: string;
+  name?: FieldValue;
+  email?: FieldValue;
+  grade?: FieldValue;
+  school_name?: FieldValue;
+};
+type RawSheet = { students?: RawSheetRow[] };
+
+const STATUS_WORDS = new Set(["BLURRED", "NO_DATA", "N/A", "NA", "NULL", "NONE"]);
+
+function readField(field?: FieldValue): { status: string; value: string | null } {
+  const status = String(field?.status || "NO_DATA").toUpperCase();
+  const raw = String(field?.value ?? "").trim();
+  const readable =
+    status === "READABLE" && raw.length > 0 && !STATUS_WORDS.has(raw.toUpperCase());
+  if (readable) return { status: "READABLE", value: raw };
+  if (status === "READABLE") return { status: "NO_DATA", value: null };
+  return { status, value: null };
+}
+
+const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function mergeField(
+  a: { status: string; value: string | null },
+  b: { status: string; value: string | null }
+): { status: string; value: string | null } {
+  if (a.status === "READABLE" && b.status === "READABLE" && a.value && b.value) {
+    if (norm(a.value) === norm(b.value)) {
+      return { status: "READABLE", value: a.value };
+    }
+    return { status: "AMBIGUOUS", value: null };
+  }
+  if (a.status === "READABLE" || b.status === "READABLE") {
+    // Only one independent read saw a value: not confirmed, keep it out.
+    return { status: "UNCONFIRMED", value: null };
+  }
+  if (a.status === "BLURRED" || b.status === "BLURRED") {
+    return { status: "BLURRED", value: null };
+  }
+  return { status: "NO_DATA", value: null };
+}
+
+function mergeQuality(a?: string, b?: string) {
+  const qa = String(a || "").toUpperCase();
+  const qb = String(b || "").toUpperCase();
+  if (qa === "BLANK" || qb === "BLANK") return "BLANK";
+  if (qa === "CUT_OFF" || qb === "CUT_OFF") return "CUT_OFF";
+  if (qa === "CLEAR" && qb === "CLEAR") return "CLEAR";
+  return "BLURRED";
 }
 
 const PLACEHOLDER_EMAIL =
   /@(example\.(com|org|net)|test\.com|email\.com|domain\.com|sample\.com)$/i;
 
-function sanitizeEmail(value: string | null): string | null {
-  if (!value) return null;
-  return PLACEHOLDER_EMAIL.test(value) ? null : value;
-}
-
-function parseStudents(
-  parsed: { students?: GeminiStudent[] },
+function mergeSheets(
+  rawA: RawSheet,
+  rawB: RawSheet,
   startPage: number,
   pagesInGroup: number
 ): StudentRecord[] {
-  return (parsed.students || [])
-    .filter((row) => row.slot >= 1 && row.slot <= pagesInGroup)
-    .map((row) => {
-      const grade = emptyToNull(row.grade);
-      return {
-        slot: row.slot,
-        sourcePage: startPage + row.slot - 1,
-        pageVisible: row.page_visible !== false,
-        name: emptyToNull(row.name),
-        email: sanitizeEmail(emptyToNull(row.email)?.toLowerCase() ?? null),
-        grade,
-        gradeNumber: parseGradeNumber(grade, row.grade_number ?? null),
-        schoolName: emptyToNull(row.school_name),
-      };
+  const rowsA = new Map<number, RawSheetRow>();
+  const rowsB = new Map<number, RawSheetRow>();
+  for (const row of rawA.students || []) {
+    if (row.slot) rowsA.set(row.slot, row);
+  }
+  for (const row of rawB.students || []) {
+    if (row.slot) rowsB.set(row.slot, row);
+  }
+
+  const records: StudentRecord[] = [];
+  for (let slot = 1; slot <= pagesInGroup; slot += 1) {
+    const rowA = rowsA.get(slot);
+    const rowB = rowsB.get(slot);
+    const quality = mergeQuality(rowA?.quality, rowB?.quality);
+
+    const name = mergeField(readField(rowA?.name), readField(rowB?.name));
+    let email = mergeField(readField(rowA?.email), readField(rowB?.email));
+    if (
+      email.value &&
+      PLACEHOLDER_EMAIL.test(email.value.toLowerCase())
+    ) {
+      email = { status: "BLURRED", value: null };
+    }
+    const grade = mergeField(readField(rowA?.grade), readField(rowB?.grade));
+    const school = mergeField(
+      readField(rowA?.school_name),
+      readField(rowB?.school_name)
+    );
+
+    records.push({
+      slot,
+      sourcePage: startPage + slot - 1,
+      nameStatus: name.status,
+      quality,
+      name: name.value,
+      email: email.value ? email.value.toLowerCase() : null,
+      grade: grade.value,
+      gradeNumber: parseGradeNumber(grade.value, null),
+      schoolName: school.value,
     });
+  }
+  return records;
 }
 
 function parseJsonPayload(text: string) {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return JSON.parse(fenced ? fenced[1] : trimmed) as {
-    students?: GeminiStudent[];
-  };
+  return JSON.parse(fenced ? fenced[1] : trimmed) as RawSheet;
 }
 
 export function aiProvider() {
   const value = (process.env.AI_PROVIDER || "gemini").toLowerCase();
   if (value === "deepseek") return "deepseek" as const;
   return "gemini" as const;
+}
+
+export function aiModel() {
+  if (aiProvider() === "deepseek") {
+    return process.env.DEEPSEEK_MODEL || "deepseek-flash";
+  }
+  return process.env.GEMINI_MODEL || "gemini-3.8-flash";
 }
 
 function addUsage(a: ExtractUsage, b: ExtractUsage): ExtractUsage {
@@ -118,17 +204,9 @@ function addUsage(a: ExtractUsage, b: ExtractUsage): ExtractUsage {
   };
 }
 
-export function aiModel() {
-  if (aiProvider() === "deepseek") {
-    return process.env.DEEPSEEK_MODEL || "deepseek-flash";
-  }
-  return process.env.GEMINI_MODEL || "gemini-3.8-flash";
-}
-
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 async function geminiRequest(
-  prompt: string,
   jpeg: Buffer
 ): Promise<{ text: string; usage: ExtractUsage }> {
   const key = process.env.GEMINI_API_KEY;
@@ -137,13 +215,6 @@ async function geminiRequest(
   }
   const model = aiModel();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-  // Deliberately NO responseSchema: Gemini 3.8-flash silently omits fields
-  // (even readable names) when a schema is attached. Plain JSON mode + the
-  // strict prompt is far more accurate for this task.
-  const generationConfig = {
-    temperature: 0,
-    responseMimeType: "application/json",
-  };
 
   const response = await fetch(url, {
     method: "POST",
@@ -153,7 +224,7 @@ async function geminiRequest(
         {
           role: "user",
           parts: [
-            { text: prompt },
+            { text: FORENSIC_PROMPT },
             {
               inline_data: {
                 mime_type: "image/jpeg",
@@ -163,7 +234,11 @@ async function geminiRequest(
           ],
         },
       ],
-      generationConfig,
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json",
+        responseSchema: SHEET_SCHEMA,
+      },
     }),
   });
 
@@ -202,14 +277,13 @@ async function geminiRequest(
 }
 
 async function geminiCall(
-  prompt: string,
   jpeg: Buffer
 ): Promise<{ text: string; usage: ExtractUsage }> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if (attempt > 0) await sleep(5000 * attempt);
     try {
-      return await geminiRequest(prompt, jpeg);
+      return await geminiRequest(jpeg);
     } catch (error) {
       lastError = error;
       const status = (error as { status?: number }).status;
@@ -220,28 +294,7 @@ async function geminiCall(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-async function extractWithGemini(jpeg: Buffer) {
-  const pass1 = await geminiCall(EXTRACT_PROMPT, jpeg);
-  let auditText: string;
-  let auditUsage: ExtractUsage;
-  try {
-    const audit = await geminiCall(
-      `${AUDIT_PROMPT}${pass1.text}`,
-      jpeg
-    );
-    auditText = audit.text;
-    auditUsage = audit.usage;
-  } catch (error) {
-    // If the audit fails, fall back to the raw pass but keep the failure
-    // visible so nothing is silently trusted.
-    console.error("[extract] audit pass failed:", error);
-    return pass1;
-  }
-  return { text: auditText, usage: addUsage(pass1.usage, auditUsage) };
-}
-
-async function deepseekCall(
-  prompt: string,
+async function deepseekRequest(
   jpeg: Buffer
 ): Promise<{ text: string; usage: ExtractUsage }> {
   const key = process.env.DEEPSEEK_API_KEY;
@@ -262,13 +315,13 @@ async function deepseekCall(
       thinking: { type: "disabled" },
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: prompt },
+        { role: "system", content: FORENSIC_PROMPT },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Transcribe the answer sheets in this image as json.",
+              text: "Transcribe the answer sheet in this image as json.",
             },
             {
               type: "image_url",
@@ -316,14 +369,29 @@ async function deepseekCall(
   return { text, usage };
 }
 
-async function extractWithDeepSeek(jpeg: Buffer) {
-  const pass1 = await deepseekCall(EXTRACT_PROMPT, jpeg);
+async function readSheetOnce(
+  jpeg: Buffer
+): Promise<{ sheet: RawSheet; usage: ExtractUsage }> {
+  const provider = aiProvider();
+  let text: string;
+  let usage: ExtractUsage;
+  if (provider === "deepseek") {
+    const result = await deepseekRequest(jpeg);
+    text = result.text;
+    usage = result.usage;
+  } else {
+    const result = await geminiCall(jpeg);
+    text = result.text;
+    usage = result.usage;
+  }
   try {
-    const audit = await deepseekCall(`${AUDIT_PROMPT}${pass1.text}`, jpeg);
-    return { text: audit.text, usage: addUsage(pass1.usage, audit.usage) };
-  } catch (error) {
-    console.error("[extract] audit pass failed:", error);
-    return pass1;
+    const sheet = parseJsonPayload(text);
+    if (!Array.isArray(sheet.students)) {
+      throw new Error("missing students array");
+    }
+    return { sheet, usage };
+  } catch {
+    throw new ExtractionError("AI returned malformed JSON", usage);
   }
 }
 
@@ -332,25 +400,33 @@ export async function extractStudentsFromComposite(
   startPage: number,
   pagesInGroup: number
 ): Promise<{ students: StudentRecord[]; raw: unknown; usage: ExtractUsage }> {
-  const provider = aiProvider();
-  const { text, usage } =
-    provider === "deepseek"
-      ? await extractWithDeepSeek(jpeg)
-      : await extractWithGemini(jpeg);
-
-  let parsed: { students?: GeminiStudent[] };
+  // Two INDEPENDENT reads of the same sheet. A value is only accepted when
+  // both reads agree; any disagreement or single-read value is dropped
+  // (0-hallucination policy).
+  const readA = await readSheetOnce(jpeg);
+  let readB: { sheet: RawSheet; usage: ExtractUsage };
   try {
-    parsed = parseJsonPayload(text);
-  } catch {
-    throw new ExtractionError("AI returned malformed JSON", usage);
-  }
-  if (!Array.isArray(parsed.students)) {
-    throw new ExtractionError("AI response missing students array", usage);
+    readB = await readSheetOnce(jpeg);
+  } catch (error) {
+    if (error instanceof ExtractionError && error.usage) {
+      const merged = mergeSheets(
+        readA.sheet,
+        { students: [] },
+        startPage,
+        pagesInGroup
+      );
+      return {
+        students: merged,
+        raw: { a: readA.sheet, b: null },
+        usage: addUsage(readA.usage, error.usage),
+      };
+    }
+    throw error;
   }
 
   return {
-    students: parseStudents(parsed, startPage, pagesInGroup),
-    raw: parsed,
-    usage,
+    students: mergeSheets(readA.sheet, readB.sheet, startPage, pagesInGroup),
+    raw: { a: readA.sheet, b: readB.sheet },
+    usage: addUsage(readA.usage, readB.usage),
   };
 }

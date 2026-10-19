@@ -19,22 +19,13 @@ export type CompositeStatus =
 export type StudentRecord = {
   slot: number;
   sourcePage: number;
-  pageVisible: boolean;
+  nameStatus: string;
+  quality: string;
   name: string | null;
   email: string | null;
   grade: string | null;
   gradeNumber: number | null;
   schoolName: string | null;
-};
-
-export type GeminiStudent = {
-  slot: number;
-  page_visible?: boolean;
-  name: string | null;
-  email: string | null;
-  grade: string | null;
-  grade_number: number | null;
-  school_name: string | null;
 };
 
 export type BatchRow = {

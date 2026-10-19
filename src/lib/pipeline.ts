@@ -33,6 +33,28 @@ import { usageCostUsd } from "./pricing";
 import { withCronLock } from "./lock";
 import { COMPOSITE_DIR, PAGE_DIR, UPLOAD_DIR } from "./paths";
 import { composeGrid, openPdf } from "./pdf";
+import type { StudentRecord } from "./types";
+
+function cannotExtractReason(entry: StudentRecord) {
+  if (entry.quality === "BLANK") {
+    return "Fully blurred / cannot extract: page blank";
+  }
+  if (entry.quality === "CUT_OFF") {
+    return "Fully blurred / cannot extract: sheet partially outside photo (cut off)";
+  }
+  switch (entry.nameStatus) {
+    case "BLURRED":
+      return "Fully blurred / cannot extract: name blurred or illegible";
+    case "NO_DATA":
+      return "Fully blurred / cannot extract: name blank / no data";
+    case "AMBIGUOUS":
+      return "Fully blurred / cannot extract: name ambiguous (two independent reads disagree)";
+    case "UNCONFIRMED":
+      return "Fully blurred / cannot extract: name read by only one pass (not confirmed)";
+    default:
+      return `Fully blurred / cannot extract: name ${entry.nameStatus}`;
+  }
+}
 
 export async function runExtractPages() {
   return withCronLock("extract-pages", async () => {
@@ -245,56 +267,19 @@ export async function runGemini(
           pagesInGroup
         );
         // 0-hallucination rule: a page becomes a student row ONLY when the
-        // handwritten NAME was actually extracted. Everything else is
-        // recorded as a cannot-extract entry instead of a guessed row.
-        const named = students.filter(
-          (student) => student.pageVisible && (student.name ?? "").trim().length > 0
-        );
-        const noName = students.filter(
-          (student) => student.pageVisible && !(student.name ?? "").trim()
-        );
-        const invisible = students.filter((student) => !student.pageVisible);
+        // handwritten NAME was confirmed by BOTH independent reads.
+        // Everything else is recorded as a cannot-extract entry.
+        const named = students.filter((student) => student.name);
+        const unreadable = students.filter((student) => !student.name);
 
-        const recorded = new Set<number>();
-        for (const entry of invisible) {
+        for (const entry of unreadable) {
           await insertDistortedImage({
             batchId: composite.batch_id,
             compositeId: composite.id,
             pageNumber: entry.sourcePage,
-            reason:
-              "Fully blurred / cannot extract: page unreadable (blurred/black/upside-down), no data accepted",
+            reason: cannotExtractReason(entry),
             model: aiModel(),
           });
-          recorded.add(entry.sourcePage);
-        }
-        for (const entry of noName) {
-          await insertDistortedImage({
-            batchId: composite.batch_id,
-            compositeId: composite.id,
-            pageNumber: entry.sourcePage,
-            reason:
-              "Fully blurred / cannot extract: name not readable, page not added to students",
-            model: aiModel(),
-          });
-          recorded.add(entry.sourcePage);
-        }
-        for (
-          let page = composite.start_page;
-          page <= composite.end_page;
-          page += 1
-        ) {
-          const hasName = named.some((student) => student.sourcePage === page);
-          if (!recorded.has(page) && !hasName) {
-            await insertDistortedImage({
-              batchId: composite.batch_id,
-              compositeId: composite.id,
-              pageNumber: page,
-              reason:
-                "Fully blurred / cannot extract: AI returned no data for this page",
-              model: aiModel(),
-            });
-            recorded.add(page);
-          }
         }
 
         if (named.length > 0) {
@@ -325,7 +310,7 @@ export async function runGemini(
         } else {
           await finishComposite(composite.id, "done");
           console.log(
-            `Composite ${composite.id}: saved ${named.length} named, ${recorded.size} cannot-extract (pages ${composite.start_page}-${composite.end_page})`
+            `Composite ${composite.id}: saved ${named.length} named, ${unreadable.length} cannot-extract (pages ${composite.start_page}-${composite.end_page})`
           );
         }
       } catch (error) {
