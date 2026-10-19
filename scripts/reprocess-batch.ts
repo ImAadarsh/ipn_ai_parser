@@ -1,7 +1,10 @@
+import fs from "fs/promises";
+import path from "path";
 import "./preload-env";
 import { PAGES_PER_COMPOSITE } from "../src/lib/constants";
 import { getPool, initSchema } from "../src/lib/db";
 import { aiModel, aiProvider } from "../src/lib/extract";
+import { COMPOSITE_DIR } from "../src/lib/paths";
 import { runCompose, runGemini } from "../src/lib/pipeline";
 
 async function main() {
@@ -31,6 +34,19 @@ async function main() {
     `testing batch ${batch.id} "${batch.filename}" (${batch.total_pages} pages) with provider=${aiProvider()} model=${aiModel()}`
   );
 
+  const [oldRows] = await db.query(
+    `SELECT id, file_path FROM composites WHERE batch_id = ?`,
+    [batchId]
+  );
+  const oldComposites = oldRows as Array<{ id: number; file_path: string }>;
+  for (const row of oldComposites) {
+    await fs.unlink(path.join(COMPOSITE_DIR, row.file_path)).catch(() => {});
+  }
+  if (oldComposites.length) {
+    await db.query(`DELETE FROM composites WHERE batch_id = ?`, [batchId]);
+    console.log(`removed ${oldComposites.length} old composite rows/files`);
+  }
+
   const [countRows] = await db.query(
     `SELECT
        (SELECT COUNT(*) FROM pages WHERE batch_id = ?) AS pages_total,
@@ -41,7 +57,7 @@ async function main() {
   const needed = Math.ceil(counts.pagesTotal / PAGES_PER_COMPOSITE);
   if (counts.compsTotal < needed) {
     console.log(
-      `composing missing images (${counts.compsTotal}/${needed}) before AI pass`
+      `composing ${needed} single-page images before AI pass (have ${counts.compsTotal})`
     );
     await db.query(`UPDATE batches SET status = 'pages_ready' WHERE id = ?`, [
       batchId,
@@ -55,6 +71,7 @@ async function main() {
       const after = countsOf(afterRows);
       if (after.compsTotal >= needed) break;
     }
+    console.log(`composed pages for batch ${batchId}`);
   }
 
   await db.query(
