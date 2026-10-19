@@ -400,33 +400,35 @@ export async function extractStudentsFromComposite(
   startPage: number,
   pagesInGroup: number
 ): Promise<{ students: StudentRecord[]; raw: unknown; usage: ExtractUsage }> {
-  // Two INDEPENDENT reads of the same sheet. A value is only accepted when
-  // both reads agree; any disagreement or single-read value is dropped
-  // (0-hallucination policy).
-  const readA = await readSheetOnce(jpeg);
-  let readB: { sheet: RawSheet; usage: ExtractUsage };
-  try {
-    readB = await readSheetOnce(jpeg);
-  } catch (error) {
-    if (error instanceof ExtractionError && error.usage) {
-      const merged = mergeSheets(
-        readA.sheet,
-        { students: [] },
-        startPage,
-        pagesInGroup
-      );
-      return {
-        students: merged,
-        raw: { a: readA.sheet, b: null },
-        usage: addUsage(readA.usage, error.usage),
-      };
-    }
-    throw error;
+  // Two INDEPENDENT reads of the same sheet, in parallel. A value is only
+  // accepted when both reads agree; any disagreement or single-read value is
+  // dropped (0-hallucination policy).
+  const [resA, resB] = await Promise.allSettled([
+    readSheetOnce(jpeg),
+    readSheetOnce(jpeg),
+  ]);
+
+  if (resA.status === "rejected") {
+    throw resA.reason;
+  }
+  const readA = resA.value;
+
+  if (resB.status === "rejected") {
+    // Second read failed: nothing can be confirmed, so every field stays
+    // unconfirmed (page goes to the cannot-extract records).
+    const error = resB.reason;
+    const usageB =
+      error instanceof ExtractionError && error.usage ? error.usage : null;
+    return {
+      students: mergeSheets(readA.sheet, { students: [] }, startPage, pagesInGroup),
+      raw: { a: readA.sheet, b: null },
+      usage: usageB ? addUsage(readA.usage, usageB) : readA.usage,
+    };
   }
 
   return {
-    students: mergeSheets(readA.sheet, readB.sheet, startPage, pagesInGroup),
-    raw: { a: readA.sheet, b: readB.sheet },
-    usage: addUsage(readA.usage, readB.usage),
+    students: mergeSheets(readA.sheet, resB.value.sheet, startPage, pagesInGroup),
+    raw: { a: readA.sheet, b: resB.value.sheet },
+    usage: addUsage(readA.usage, resB.value.usage),
   };
 }
