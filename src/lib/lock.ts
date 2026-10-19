@@ -13,10 +13,25 @@ export async function withCronLock<T>(
 
   try {
     const stat = await fs.stat(lockPath);
-    if (Date.now() - stat.mtimeMs < STALE_MS) {
+    const content = await fs.readFile(lockPath, "utf8").catch(() => "");
+    const pid = Number(content.trim().split(/\s+/)[0]);
+    let alive = false;
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        process.kill(pid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+    }
+    const stale = Date.now() - stat.mtimeMs > STALE_MS;
+    // A lock owned by a dead process must never block the pipeline after a
+    // restart/kill — only honour locks from live processes.
+    if (alive && !stale) {
       console.log(`[${name}] skipped, already running`);
       return null;
     }
+    console.log(`[${name}] stealing stale lock (pid ${pid || "?"})`);
     await fs.unlink(lockPath);
   } catch {
     // no lock

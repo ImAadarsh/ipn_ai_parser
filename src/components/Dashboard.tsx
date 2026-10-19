@@ -271,21 +271,39 @@ export default function Dashboard({ user }: { user: User }) {
   const totals = useMemo(() => {
     const pagesTotal = batches.reduce((s, b) => s + (b.total_pages || 0), 0);
     const pagesDone = batches.reduce((s, b) => s + (b.page_count || 0), 0);
-    const imagesExpected = batches.reduce((s, b) => s + expectedImages(b), 0);
     const imagesDone = batches.reduce((s, b) => s + (b.composite_count || 0), 0);
     const imagesSettled = batches.reduce(
       (s, b) => s + (b.composites_done || 0) + (b.composites_review || 0),
       0
     );
-    return { pagesTotal, pagesDone, imagesExpected, imagesDone, imagesSettled };
+    const pagesComposed = batches.reduce(
+      (s, b) =>
+        s + Math.min((b.composite_count || 0) * 6, b.page_count || 0),
+      0
+    );
+    const pagesAi = batches.reduce(
+      (s, b) =>
+        s +
+        Math.min(
+          ((b.composites_done || 0) + (b.composites_review || 0)) * 6,
+          b.page_count || 0
+        ),
+      0
+    );
+    return {
+      pagesTotal,
+      pagesDone,
+      imagesDone,
+      imagesSettled,
+      pagesComposed,
+      pagesAi,
+    };
   }, [batches]);
 
   const p = usage?.pipelines;
   const pagesPct = p ? pct(p.pagesDone, p.pagesTotal || totals.pagesTotal) : 0;
-  const imagesPct = p
-    ? pct(p.imagesDone, totals.imagesExpected || p.imagesDone)
-    : 0;
-  const aiPct = p ? pct(p.imagesProcessed, p.imagesDone) : 0;
+  const imagesPct = pct(totals.pagesComposed, totals.pagesTotal);
+  const aiPct = pct(totals.pagesAi, totals.pagesTotal);
   const running = usage?.worker.running ?? false;
   const paused = usage?.paused ?? false;
 
@@ -421,14 +439,12 @@ export default function Dashboard({ user }: { user: User }) {
           />
           <PipelineBar
             label="P2 · images Processing"
-            hint={`${(p?.imagesDone ?? 0).toLocaleString()} / ${totals.imagesExpected.toLocaleString()} images`}
+            hint={`${totals.pagesComposed.toLocaleString()} / ${totals.pagesTotal.toLocaleString()} images`}
             value={imagesPct}
           />
           <PipelineBar
             label="P3 · AI extraction"
-            hint={`${(p?.imagesProcessed ?? 0).toLocaleString()} / ${(
-              p?.imagesDone ?? 0
-            ).toLocaleString()} images`}
+            hint={`${totals.pagesAi.toLocaleString()} / ${totals.pagesTotal.toLocaleString()} images`}
             value={aiPct}
           />
         </div>
@@ -676,8 +692,14 @@ function ProcessTab({
                 </td>
                 <td className="px-4 py-3">
                   <MiniBar
-                    value={pct(b.composite_count, expectedImages(b))}
-                    hint={`${b.composite_count}/${expectedImages(b) || "—"}`}
+                    value={pct(
+                      Math.min(b.composite_count * 6, b.page_count),
+                      b.total_pages
+                    )}
+                    hint={`${Math.min(
+                      b.composite_count * 6,
+                      b.page_count
+                    )}/${b.total_pages || "—"}`}
                   />
                 </td>
                 <td className="px-4 py-3">{b.student_count}</td>
@@ -1031,7 +1053,10 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
             </thead>
             <tbody>
               {batches.map((b) => {
-                const images = b.composites_done + b.composites_review;
+                const images = Math.min(
+                  (b.composites_done + b.composites_review) * 6,
+                  b.total_pages || 0
+                );
                 return (
                   <tr key={b.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 text-slate-500">#{b.id}</td>
