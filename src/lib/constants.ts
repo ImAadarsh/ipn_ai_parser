@@ -1,4 +1,6 @@
-export const PAGES_PER_COMPOSITE = 6;
+// One sheet per image unit: full resolution per page = accurate handwriting
+// reading. Multi-page grids shrink each sheet below the legibility limit.
+export const PAGES_PER_COMPOSITE = 1;
 
 export function maxPdfMb() {
   return Number(process.env.MAX_PDF_MB || 200);
@@ -17,9 +19,9 @@ export function extractPagesPerRun() {
 }
 
 export function compositesPerRun() {
-  return Number(process.env.COMPOSITES_PER_RUN || 8);
+  return Number(process.env.COMPOSITES_PER_RUN || 40);
 }
 
 export function geminiPerRun() {
-  return Number(process.env.GEMINI_PER_RUN || 2);
+  return Number(process.env.GEMINI_PER_RUN || 6);
 }

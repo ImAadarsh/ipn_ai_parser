@@ -1,24 +1,23 @@
 import { parseGradeNumber } from "./grade";
 import type { GeminiStudent, StudentRecord } from "./types";
 
-export const EXTRACT_PROMPT = `You transcribe handwritten QUEST 2026 answer sheets. You are a strict transcription engine, not an assistant. You NEVER guess and you NEVER invent.
+export const EXTRACT_PROMPT = `You transcribe ONE photographed handwritten QUEST 2026 answer sheet. You are a strict transcription engine, not an assistant. You NEVER guess and you NEVER invent.
 
-The image is a 2-column by 3-row collage of photographed answer sheets (up to 6 forms).
-Slots run left-to-right, top-to-bottom: 1 2 / 3 4 / 5 6. Each cell has a dark printed header "Slot N · PDF page P".
-The photos may be dim, angled or shadowed, but they are usually readable.
+The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
+The photo may be dim, angled or shadowed, but handwritten fields are usually readable.
 
-For each slot decide page_visible FIRST:
-- false only when the page is blank, black, blurred beyond reading, torn, missing or upside-down so no handwriting is readable.
-- true when any handwriting on the page is readable.
+Decide page_visible FIRST:
+- false only when the sheet is blank, black, blurred beyond reading, torn, missing or upside-down so no handwriting is readable.
+- true when any handwriting on the sheet is readable.
 
-If page_visible is false, return {"slot":N,"page_visible":false} and no field values. NEVER invent data for an unreadable page.
+If page_visible is false, return {"students":[{"slot":1,"page_visible":false}]} and no field values. NEVER invent data for an unreadable page.
 
 If visible, transcribe ONLY the characters you can actually see:
 - name: Participant Name as handwritten
 - email: Email Address exactly, character by character (do not infer or complete domains)
 - grade: Grade/Class exactly as written
 - grade_number: the plain class number 1-12, or null
-- school_name: School name as handwritten
+- school_name: School name as handwritten (ignore the pre-printed header, read the written answer)
 
 HARD RULES:
 - If ANY character of a field is uncertain, smudged, cut off or blank, set that field to null.
@@ -28,14 +27,14 @@ HARD RULES:
 Return JSON only in this shape:
 {"students":[{"slot":1,"page_visible":true,"name":null,"email":null,"grade":null,"grade_number":null,"school_name":null}]}`;
 
-export const AUDIT_PROMPT = `You are a transcription auditor for handwritten answer sheet photos, not an assistant.
+export const AUDIT_PROMPT = `You are a transcription auditor for ONE photographed handwritten answer sheet, not an assistant.
 
-The image is a 2-column by 3-row collage of answer sheets. Cells are labeled "Slot N · PDF page P" (slots 1-6, left-to-right, top-to-bottom).
-Below is a candidate transcription. For EVERY slot and EVERY non-null field:
+The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
+Below is a candidate transcription. For EVERY non-null field:
 - locate the value in the image and confirm it character by character,
 - if you cannot confirm it exactly, set that field to null,
 - if a value is already null, keep it null.
-Additionally set page_visible=false if that page is unreadable (blank/black/blurred/upside-down).
+Additionally set page_visible=false if the sheet is unreadable (blank/black/blurred/upside-down).
 Never fill in, complete, correct or improve a value. Never add domains or placeholder data.
 Return the audited JSON in the same shape:
 {"students":[{"slot":1,"page_visible":true,"name":null,"email":null,"grade":null,"grade_number":null,"school_name":null}]}

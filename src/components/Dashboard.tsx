@@ -46,6 +46,15 @@ type ReviewItem = {
 
 type Breakdown = { label: string; total: number; grade_number?: number };
 
+type DistortedItem = {
+  id: number;
+  batch_id: number;
+  composite_id: number;
+  page_number: number;
+  reason: string | null;
+  filename: string;
+};
+
 type Usage = {
   paused: boolean;
   hasWork: boolean;
@@ -62,6 +71,7 @@ type Usage = {
     imagesReview: number;
     students: number;
     batches: number;
+    distortedImages: number;
   };
   students: {
     total: number;
@@ -106,12 +116,6 @@ function pct(done: number, total: number) {
   return Math.min(100, Math.round((done / total) * 100));
 }
 
-function expectedImages(batch: Batch) {
-  if (!batch.total_pages) return 0;
-  const per = batch.pages_per_composite || 6;
-  return Math.ceil(batch.total_pages / per);
-}
-
 export default function Dashboard({ user }: { user: User }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("process");
@@ -123,6 +127,7 @@ export default function Dashboard({ user }: { user: User }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [review, setReview] = useState<ReviewItem[]>([]);
+  const [distorted, setDistorted] = useState<DistortedItem[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [filterBatch, setFilterBatch] = useState("");
@@ -173,6 +178,7 @@ export default function Dashboard({ user }: { user: User }) {
     if (configJson.maxPdfMb) setMaxPdfMb(configJson.maxPdfMb);
     if (!usageJson.error) setUsage(usageJson);
     setReview(reviewJson.items || []);
+    setDistorted(reviewJson.distorted || []);
     if (usersRes) {
       const usersJson = await usersRes.json();
       setUsers(usersJson.users || []);
@@ -277,15 +283,14 @@ export default function Dashboard({ user }: { user: User }) {
       0
     );
     const pagesComposed = batches.reduce(
-      (s, b) =>
-        s + Math.min((b.composite_count || 0) * 6, b.page_count || 0),
+      (s, b) => s + Math.min(b.composite_count || 0, b.page_count || 0),
       0
     );
     const pagesAi = batches.reduce(
       (s, b) =>
         s +
         Math.min(
-          ((b.composites_done || 0) + (b.composites_review || 0)) * 6,
+          (b.composites_done || 0) + (b.composites_review || 0),
           b.page_count || 0
         ),
       0
@@ -528,6 +533,7 @@ export default function Dashboard({ user }: { user: User }) {
       {tab === "review" && (
         <ReviewTab
           items={review}
+          distorted={distorted}
           onAction={reviewAction}
           onZoom={setZoom}
           onRetryAll={() => control("retry-review")}
@@ -692,14 +698,8 @@ function ProcessTab({
                 </td>
                 <td className="px-4 py-3">
                   <MiniBar
-                    value={pct(
-                      Math.min(b.composite_count * 6, b.page_count),
-                      b.total_pages
-                    )}
-                    hint={`${Math.min(
-                      b.composite_count * 6,
-                      b.page_count
-                    )}/${b.total_pages || "—"}`}
+                    value={pct(b.composite_count, b.total_pages)}
+                    hint={`${b.composite_count}/${b.total_pages || "—"}`}
                   />
                 </td>
                 <td className="px-4 py-3">{b.student_count}</td>
@@ -902,16 +902,18 @@ function StudentsTab({
 
 function ReviewTab({
   items,
+  distorted,
   onAction,
   onZoom,
   onRetryAll,
 }: {
   items: ReviewItem[];
+  distorted: DistortedItem[];
   onAction: (id: number, action: string) => void;
   onZoom: (item: ReviewItem) => void;
   onRetryAll: () => void;
 }) {
-  if (!items.length) {
+  if (!items.length && !distorted.length) {
     return (
       <section className="mt-6 rounded-3xl border border-white bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
         Nothing needs review.
@@ -920,63 +922,114 @@ function ReviewTab({
   }
   return (
     <section className="mt-6">
-      <div className="mb-3 flex justify-end">
-        <button
-          type="button"
-          onClick={onRetryAll}
-          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm"
-        >
-          Retry all ({items.length})
-        </button>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="overflow-hidden rounded-3xl border border-white bg-white shadow-sm"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/review/${item.id}/image`}
-              alt={`Composite ${item.id}`}
-              onClick={() => onZoom(item)}
-              className="h-64 w-full cursor-zoom-in bg-slate-100 object-contain"
-            />
-            <div className="p-4">
-              <p className="text-sm font-medium">
-                Batch #{item.batch_id} · pages {item.start_page}-{item.end_page}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">{item.filename}</p>
-              {item.error_message ? (
-                <p className="mt-2 text-xs text-red-600">{item.error_message}</p>
-              ) : null}
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => onAction(item.id, "retry")}
-                  className="rounded-full bg-[#142033] px-4 py-2 text-xs text-white"
-                >
-                  Retry
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onAction(item.id, "discard")}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-xs"
-                >
-                  Mark done
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onZoom(item)}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-xs"
-                >
-                  Zoom
-                </button>
-              </div>
-            </div>
+      {items.length ? (
+        <>
+          <div className="mb-3 flex justify-end">
+            <button
+              type="button"
+              onClick={onRetryAll}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm"
+            >
+              Retry all ({items.length})
+            </button>
           </div>
-        ))}
-      </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className="overflow-hidden rounded-3xl border border-white bg-white shadow-sm"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/review/${item.id}/image`}
+                  alt={`Image ${item.id}`}
+                  onClick={() => onZoom(item)}
+                  className="h-64 w-full cursor-zoom-in bg-slate-100 object-contain"
+                />
+                <div className="p-4">
+                  <p className="text-sm font-medium">
+                    Batch #{item.batch_id} · page {item.start_page}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{item.filename}</p>
+                  {item.error_message ? (
+                    <p className="mt-2 text-xs text-red-600">{item.error_message}</p>
+                  ) : null}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onAction(item.id, "retry")}
+                      className="rounded-full bg-[#142033] px-4 py-2 text-xs text-white"
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAction(item.id, "discard")}
+                      className="rounded-full border border-slate-300 px-4 py-2 text-xs"
+                    >
+                      Mark done
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onZoom(item)}
+                      className="rounded-full border border-slate-300 px-4 py-2 text-xs"
+                    >
+                      Zoom
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {distorted.length ? (
+        <div className={items.length ? "mt-8" : ""}>
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">
+            Fully blurred / cannot extract ({distorted.length})
+          </h3>
+          <p className="mb-3 text-xs text-slate-500">
+            These pages were NOT added to Students — no name could be read, so
+            nothing was guessed. Open a page to check it manually.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {distorted.map((entry) => (
+              <div
+                key={entry.id}
+                className="overflow-hidden rounded-3xl border border-white bg-white shadow-sm"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/review/${entry.composite_id}/image`}
+                  alt={`Batch ${entry.batch_id} page ${entry.page_number}`}
+                  loading="lazy"
+                  className="h-56 w-full cursor-zoom-in bg-slate-100 object-contain"
+                  onClick={() =>
+                    onZoom({
+                      id: entry.composite_id,
+                      batch_id: entry.batch_id,
+                      start_page: entry.page_number,
+                      end_page: entry.page_number,
+                      error_message: entry.reason,
+                      filename: entry.filename,
+                    })
+                  }
+                />
+                <div className="p-4">
+                  <p className="text-sm font-medium">
+                    Batch #{entry.batch_id} · page {entry.page_number}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{entry.filename}</p>
+                  {entry.reason ? (
+                    <p className="mt-2 text-xs text-amber-700">{entry.reason}</p>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1011,6 +1064,10 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
           highlight
         />
         <BigStat label="Processed images" value={pagesDone.toLocaleString()} />
+        <Stat
+          label="Cannot extract (blurred / no name)"
+          value={(p?.distortedImages ?? 0).toLocaleString()}
+        />
         <Stat label="Valid emails" value={(s?.validEmails ?? 0).toLocaleString()} />
         <Stat label="Emails on file" value={(s?.withEmail ?? 0).toLocaleString()} />
         <Stat label="Valid email rate" value={`${emailRate}%`} />
@@ -1054,7 +1111,7 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
             <tbody>
               {batches.map((b) => {
                 const images = Math.min(
-                  (b.composites_done + b.composites_review) * 6,
+                  b.composites_done + b.composites_review,
                   b.total_pages || 0
                 );
                 return (

@@ -118,7 +118,7 @@ export async function composeGrid(
   pages: Array<{ pageNumber: number; image: Buffer }>,
   pagesPerComposite = 6
 ): Promise<Buffer> {
-  const cols = COLS;
+  const cols = pagesPerComposite === 1 ? 1 : COLS;
   const rows = Math.ceil(pagesPerComposite / cols);
   const width = CELL_WIDTH * cols;
   const height = (CELL_HEIGHT + LABEL_HEIGHT) * rows;

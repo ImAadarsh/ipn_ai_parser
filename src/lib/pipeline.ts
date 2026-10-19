@@ -230,22 +230,63 @@ export async function runGemini(
           composite.start_page,
           pagesInGroup
         );
-        const visible = students.filter((student) => student.pageVisible);
-        const distorted = students.filter((student) => !student.pageVisible);
-        for (const entry of distorted) {
+        // 0-hallucination rule: a page becomes a student row ONLY when the
+        // handwritten NAME was actually extracted. Everything else is
+        // recorded as a cannot-extract entry instead of a guessed row.
+        const named = students.filter(
+          (student) => student.pageVisible && (student.name ?? "").trim().length > 0
+        );
+        const noName = students.filter(
+          (student) => student.pageVisible && !(student.name ?? "").trim()
+        );
+        const invisible = students.filter((student) => !student.pageVisible);
+
+        const recorded = new Set<number>();
+        for (const entry of invisible) {
           await insertDistortedImage({
             batchId: composite.batch_id,
             compositeId: composite.id,
             pageNumber: entry.sourcePage,
             reason:
-              "Completely distorted / unreadable page, no data accepted (0 hallucination policy)",
+              "Fully blurred / cannot extract: page unreadable (blurred/black/upside-down), no data accepted",
             model: aiModel(),
           });
+          recorded.add(entry.sourcePage);
         }
-        if (visible.length > 0) {
+        for (const entry of noName) {
+          await insertDistortedImage({
+            batchId: composite.batch_id,
+            compositeId: composite.id,
+            pageNumber: entry.sourcePage,
+            reason:
+              "Fully blurred / cannot extract: name not readable, page not added to students",
+            model: aiModel(),
+          });
+          recorded.add(entry.sourcePage);
+        }
+        for (
+          let page = composite.start_page;
+          page <= composite.end_page;
+          page += 1
+        ) {
+          const hasName = named.some((student) => student.sourcePage === page);
+          if (!recorded.has(page) && !hasName) {
+            await insertDistortedImage({
+              batchId: composite.batch_id,
+              compositeId: composite.id,
+              pageNumber: page,
+              reason:
+                "Fully blurred / cannot extract: AI returned no data for this page",
+              model: aiModel(),
+            });
+            recorded.add(page);
+          }
+        }
+
+        if (named.length > 0) {
           await insertStudents(
             composite.batch_id,
-            visible,
+            named,
             composite.file_path,
             raw,
             composite.start_page,
@@ -258,20 +299,19 @@ export async function runGemini(
           totalTokens: usage.totalTokens,
           costUsd: usageCostUsd(usage),
         });
-        if (visible.length === 0 && distorted.length > 0) {
+        if (named.length === 0) {
           await finishComposite(
             composite.id,
             "review",
-            `Completely distorted: ${distorted.length}/${pagesInGroup} pages unreadable, no data accepted`
+            `Fully blurred / cannot extract: no readable name on page ${composite.start_page}`
           );
           console.log(
-            `Composite ${composite.id}: ALL ${distorted.length} pages distorted (pages ${composite.start_page}-${composite.end_page})`
+            `Composite ${composite.id}: cannot extract (pages ${composite.start_page}-${composite.end_page})`
           );
         } else {
-          // Never trust an extraction with zero visible students silently.
           await finishComposite(composite.id, "done");
           console.log(
-            `Composite ${composite.id}: saved ${visible.length} students, ${distorted.length} distorted (pages ${composite.start_page}-${composite.end_page})`
+            `Composite ${composite.id}: saved ${named.length} named, ${recorded.size} cannot-extract (pages ${composite.start_page}-${composite.end_page})`
           );
         }
       } catch (error) {

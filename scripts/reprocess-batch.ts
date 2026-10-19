@@ -1,4 +1,5 @@
 import "./preload-env";
+import { PAGES_PER_COMPOSITE } from "../src/lib/constants";
 import { getPool, initSchema } from "../src/lib/db";
 import { aiModel, aiProvider } from "../src/lib/extract";
 import { runCompose, runGemini } from "../src/lib/pipeline";
@@ -37,7 +38,7 @@ async function main() {
     [batchId, batchId]
   );
   const counts = countsOf(countRows);
-  const needed = Math.ceil(counts.pagesTotal / 6);
+  const needed = Math.ceil(counts.pagesTotal / PAGES_PER_COMPOSITE);
   if (counts.compsTotal < needed) {
     console.log(
       `composing missing images (${counts.compsTotal}/${needed}) before AI pass`
