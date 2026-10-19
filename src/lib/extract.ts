@@ -238,6 +238,9 @@ async function geminiRequest(
         temperature: 0,
         responseMimeType: "application/json",
         responseSchema: SHEET_SCHEMA,
+        // Gemini 3.x defaults to thinking mode (~26s/read); low thinking is
+        // ~7s/read and measured MORE accurate on these answer sheets.
+        thinkingConfig: { thinkingLevel: "low" },
       },
     }),
   });
