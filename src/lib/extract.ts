@@ -30,13 +30,12 @@ Return JSON only in this shape:
 export const AUDIT_PROMPT = `You are a transcription auditor for ONE photographed handwritten answer sheet, not an assistant.
 
 The image has a dark printed header bar "Slot 1 · PDF page N", the sheet photo is below it.
-Below is a candidate transcription. For EVERY non-null field:
-- locate the value in the image and confirm it character by character,
-- if you cannot confirm it exactly, set that field to null,
-- if a value is already null, keep it null.
-Additionally set page_visible=false if the sheet is unreadable (blank/black/blurred/upside-down).
-Never fill in, complete, correct or improve a value. Never add domains or placeholder data.
-Return the audited JSON in the same shape:
+Below is a candidate transcription produced by another reader. Your ONLY job is to remove wrong or invented values, not to re-read everything:
+- For each non-null value: look for it on the sheet. If you find the same value (spelling, spacing or punctuation may differ slightly), KEEP it unchanged.
+- Set a field to null ONLY when the value is not on the sheet at all, or it clearly looks invented or wrong.
+- Never fill in, complete, correct or improve any value. Nulls stay null.
+- Keep page_visible=true when any handwriting is readable; set page_visible=false only when the sheet is unreadable (blank/black/blurred/upside-down).
+Return the final JSON in the same shape:
 {"students":[{"slot":1,"page_visible":true,"name":null,"email":null,"grade":null,"grade_number":null,"school_name":null}]}
 
 Candidate transcription to audit:
