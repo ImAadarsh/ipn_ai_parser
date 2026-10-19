@@ -421,15 +421,13 @@ export default function Dashboard({ user }: { user: User }) {
           />
           <PipelineBar
             label="P2 · images Processing"
-            hint={`${((p?.imagesDone ?? 0) * 6).toLocaleString()} / ${(
-              totals.imagesExpected * 6
-            ).toLocaleString()} images`}
+            hint={`${(p?.imagesDone ?? 0).toLocaleString()} / ${totals.imagesExpected.toLocaleString()} images`}
             value={imagesPct}
           />
           <PipelineBar
             label="P3 · AI extraction"
-            hint={`${((p?.imagesProcessed ?? 0) * 6).toLocaleString()} / ${(
-              (p?.imagesDone ?? 0) * 6
+            hint={`${(p?.imagesProcessed ?? 0).toLocaleString()} / ${(
+              p?.imagesDone ?? 0
             ).toLocaleString()} images`}
             value={aiPct}
           />
@@ -679,9 +677,7 @@ function ProcessTab({
                 <td className="px-4 py-3">
                   <MiniBar
                     value={pct(b.composite_count, expectedImages(b))}
-                    hint={`${(b.composite_count * 6).toLocaleString()} / ${(
-                      expectedImages(b) * 6
-                    ).toLocaleString()}`}
+                    hint={`${b.composite_count}/${expectedImages(b) || "—"}`}
                   />
                 </td>
                 <td className="px-4 py-3">{b.student_count}</td>
@@ -966,8 +962,6 @@ function ReviewTab({
 function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] }) {
   const p = usage?.pipelines;
   const s = usage?.students;
-  const processed = p?.imagesProcessed ?? 0;
-  const forms = processed * 6;
   const recovered = s?.total ?? 0;
   const pagesTotal = p?.pagesTotal ?? 0;
   const pagesDone = p?.pagesDone ?? 0;
@@ -994,8 +988,7 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
           value={`${recoveryRate}%`}
           highlight
         />
-        <BigStat label="Processed images" value={forms.toLocaleString()} />
-        <Stat label="Pages processed" value={pagesDone.toLocaleString()} />
+        <BigStat label="Processed images" value={pagesDone.toLocaleString()} />
         <Stat label="Valid emails" value={(s?.validEmails ?? 0).toLocaleString()} />
         <Stat label="Emails on file" value={(s?.withEmail ?? 0).toLocaleString()} />
         <Stat label="Valid email rate" value={`${emailRate}%`} />
@@ -1038,7 +1031,7 @@ function ResultsTab({ usage, batches }: { usage: Usage | null; batches: Batch[] 
             </thead>
             <tbody>
               {batches.map((b) => {
-                const images = (b.composites_done + b.composites_review) * 6;
+                const images = b.composites_done + b.composites_review;
                 return (
                   <tr key={b.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 text-slate-500">#{b.id}</td>
