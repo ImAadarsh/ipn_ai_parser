@@ -46,6 +46,17 @@ async function main() {
     await db.query(`DELETE FROM composites WHERE batch_id = ?`, [batchId]);
     console.log(`removed ${oldComposites.length} old composite rows/files`);
   }
+  const [delStudents] = await db.query(
+    `DELETE FROM students WHERE batch_id = ?`,
+    [batchId]
+  );
+  const [delDistorted] = await db.query(
+    `DELETE FROM distorted_images WHERE batch_id = ?`,
+    [batchId]
+  );
+  console.log(
+    `cleared previous data: ${(delStudents as { affectedRows: number }).affectedRows} students, ${(delDistorted as { affectedRows: number }).affectedRows} distorted records`
+  );
 
   const [countRows] = await db.query(
     `SELECT
